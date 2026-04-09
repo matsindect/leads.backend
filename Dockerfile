@@ -21,6 +21,8 @@ COPY src/ /app/src/
 
 WORKDIR /app
 
+ENV PYTHONPATH=/app/src
+
 USER app
 
 EXPOSE 8000
