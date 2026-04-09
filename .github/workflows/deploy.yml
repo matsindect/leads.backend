@@ -84,12 +84,14 @@ jobs:
           echo "${{ secrets.VPS_KNOWN_HOSTS }}" >> ~/.ssh/known_hosts
 
       - name: Deploy application
+        shell: bash
         env:
           DEPLOY_HOST: ${{ secrets.VPS_HOST }}
           DEPLOY_USER: ${{ secrets.VPS_USER }}
           DEPLOY_PATH: leads-backend
           DEPLOY_ENV_CONTENT: ${{ secrets.DEPLOY_ENV_FILE }}
         run: |
+          set -eo pipefail
           SSH_CMD="ssh -o StrictHostKeyChecking=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}"
 
           echo "::group::Sync code to server"
@@ -111,24 +113,57 @@ jobs:
 
           echo "::group::Build and deploy containers"
           ${SSH_CMD} << 'DEPLOY_EOF'
-            set -euo pipefail
+            set -euxo pipefail
             cd ~/leads-backend
 
-            echo ">> Building images..."
-            docker compose -f docker-compose.prod.yml build --no-cache
+            echo ">> Building app image..."
+            docker compose -f docker-compose.prod.yml build --no-cache --pull app
 
-            echo ">> Running database migrations..."
+            echo ">> Starting infrastructure (postgres + redis)..."
+            docker compose -f docker-compose.prod.yml up -d postgres redis
+
+            echo ">> Waiting for postgres to be healthy..."
+            for i in $(seq 1 30); do
+              if docker compose -f docker-compose.prod.yml exec -T postgres pg_isready -U leads >/dev/null 2>&1; then
+                break
+              fi
+              sleep 1
+            done
+
+            echo ">> Running migrations (one-shot)..."
             docker compose -f docker-compose.prod.yml run --rm migrate
 
-            echo ">> Starting services..."
-            docker compose -f docker-compose.prod.yml up -d --force-recreate --remove-orphans
+            echo ">> Recreating app container only..."
+            docker compose -f docker-compose.prod.yml up -d --force-recreate --no-deps app
 
-            echo ">> Waiting for services to stabilize..."
-            sleep 30
+            echo ">> Waiting 10s for app to boot..."
+            sleep 10
+
+            echo ">> Verifying app is running..."
+            APP_CONTAINER=$(docker compose -f docker-compose.prod.yml ps -q app)
+            if [ -z "$APP_CONTAINER" ]; then
+              echo "ERROR: App container not found"
+              docker compose -f docker-compose.prod.yml logs --tail=50 app || true
+              exit 1
+            fi
+
+            RUNNING=$(docker inspect --format '{{.State.Running}}' "$APP_CONTAINER")
+            if [ "$RUNNING" != "true" ]; then
+              echo "ERROR: App container exists but is not running"
+              docker compose -f docker-compose.prod.yml logs --tail=50 app || true
+              exit 1
+            fi
 
             echo ">> Pruning old images..."
             docker image prune -f
+
+            echo ">> Deploy complete"
           DEPLOY_EOF
+          SSH_EXIT=$?
+          if [ "$SSH_EXIT" -ne 0 ]; then
+            echo "::error::Remote deploy failed with exit code $SSH_EXIT"
+            exit $SSH_EXIT
+          fi
           echo "::endgroup::"
 
       - name: Post-deploy health check
