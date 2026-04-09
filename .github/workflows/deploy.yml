@@ -93,9 +93,10 @@ jobs:
           APP_DIR="leads-backend"
 
           echo "::group::Sync code to server"
-          rsync -azP --delete --no-group --no-owner \
+          rsync -azP --delete --delete-excluded --no-group --no-owner \
             --exclude='.git' \
             --exclude='__pycache__' \
+            --exclude='*.pyc' \
             --exclude='.env' \
             --exclude='.mypy_cache' \
             --exclude='.pytest_cache' \
@@ -124,8 +125,22 @@ jobs:
               exit 1
             fi
 
-            echo "▶ Building app and migrate images..."
-            $COMPOSE_CMD -f "$COMPOSE_FILE" build --no-cache app migrate
+            echo "▶ Stopping and removing app + migrate containers..."
+            $COMPOSE_CMD -f "$COMPOSE_FILE" rm -sf app migrate || true
+
+            echo "▶ Removing stale leads-backend image..."
+            docker image rm -f leads-backend:latest 2>/dev/null || true
+
+            echo "▶ Cleaning bytecode caches in build context..."
+            find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+            find . -type f -name '*.pyc' -delete 2>/dev/null || true
+
+            echo "▶ Building leads-backend:latest (no cache)..."
+            DOCKER_BUILDKIT=1 $COMPOSE_CMD -f "$COMPOSE_FILE" build --no-cache --pull app
+
+            echo "▶ Inspecting newly built image..."
+            BUILT_ID=$(docker image inspect --format '{{.Id}}' leads-backend:latest)
+            echo "    Image ID: $BUILT_ID"
 
             echo "▶ Starting Postgres and Redis..."
             $COMPOSE_CMD -f "$COMPOSE_FILE" up -d postgres redis
@@ -142,9 +157,19 @@ jobs:
             $COMPOSE_CMD -f "$COMPOSE_FILE" run --rm migrate
 
             echo "▶ Starting app..."
-            $COMPOSE_CMD -f "$COMPOSE_FILE" up -d --build --force-recreate --remove-orphans app
+            $COMPOSE_CMD -f "$COMPOSE_FILE" up -d --force-recreate --remove-orphans app
 
-            echo "▶ Pruning old images..."
+            echo "▶ Verifying app container is using the new image..."
+            sleep 3
+            RUNNING_ID=$(docker inspect --format '{{.Image}}' $($COMPOSE_CMD -f "$COMPOSE_FILE" ps -q app))
+            echo "    Running image: $RUNNING_ID"
+            if [ "$BUILT_ID" != "$RUNNING_ID" ]; then
+              echo "❌ Container is NOT running the freshly built image"
+              exit 1
+            fi
+            echo "✅ App container is running the new image"
+
+            echo "▶ Pruning dangling images..."
             docker image prune -f
 
             echo "✅ Deployed on port 8087"
