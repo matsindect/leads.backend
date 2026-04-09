@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lead-pipeline"
-version = "0.2.0"
+version = "0.2.1"
 description = "Modular monolith: lead scraping + enrichment in one service."
 requires-python = ">=3.11"
 dependencies = [
