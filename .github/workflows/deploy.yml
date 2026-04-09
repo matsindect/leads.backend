@@ -1,13 +1,13 @@
 # ============================================================================
 # Lead Pipeline — Deploy on merged PR to `main`
 # ============================================================================
-# Required GitHub Secrets (already configured):
+# Required GitHub Secrets:
 #   VPS_HOST           — Server IP or hostname
 #   VPS_USER           — SSH username
 #   VPS_SSH_KEY        — Full SSH private key (PEM format)
 #   VPS_SSH_PASSPHRASE — Passphrase for the SSH private key
 #   VPS_KNOWN_HOSTS    — Output of `ssh-keyscan $VPS_HOST`
-#   DEPLOY_ENV_FILE    — Full .env file content for the server (new)
+#   DEPLOY_ENV_FILE    — Full .env file content for the server
 # ============================================================================
 
 name: Deploy Lead Pipeline
@@ -30,13 +30,12 @@ env:
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────────
-  # 1. Quality gate — lint + syntax check
+  # 1. Quality gate
   # ──────────────────────────────────────────────────────────────────────────
   quality:
-    name: Quality Gates
-    runs-on: ubuntu-latest
+    name: Lint & syntax check
     if: github.event.pull_request.merged == true
-
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -58,140 +57,85 @@ jobs:
   # 2. Deploy to server via SSH
   # ──────────────────────────────────────────────────────────────────────────
   deploy:
-    name: Deploy to Server
-    runs-on: ubuntu-latest
+    name: Deploy to server
     needs: quality
+    runs-on: ubuntu-latest
     environment: production
-
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup SSH
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_KEY }}
+          SSH_PASSPHRASE: ${{ secrets.VPS_SSH_PASSPHRASE }}
         run: |
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
-          echo "${{ secrets.VPS_KNOWN_HOSTS }}" > ~/.ssh/known_hosts && chmod 644 ~/.ssh/known_hosts
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
 
-          eval $(ssh-agent -s)
-          echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> $GITHUB_ENV
-          echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> $GITHUB_ENV
+          eval "$(ssh-agent -s)"
+          DISPLAY=:0 SSH_ASKPASS_REQUIRE=force SSH_ASKPASS=$(mktemp) \
+            bash -c "echo '#!/bin/sh
+          echo \"$SSH_PASSPHRASE\"' > \$SSH_ASKPASS && chmod +x \$SSH_ASKPASS && ssh-add ~/.ssh/deploy_key"
 
-          ASKPASS=$(mktemp)
-          cat > "$ASKPASS" << 'ASKEOF'
-          #!/bin/sh
-          echo "$SSH_PASSPHRASE"
-          ASKEOF
-          chmod +x "$ASKPASS"
-          SSH_PASSPHRASE="${{ secrets.VPS_SSH_PASSPHRASE }}" SSH_ASKPASS="$ASKPASS" SSH_ASKPASS_REQUIRE=force ssh-add ~/.ssh/deploy_key
-          rm -f ~/.ssh/deploy_key "$ASKPASS"
+          echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> "$GITHUB_ENV"
+          echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> "$GITHUB_ENV"
+
+          echo "${{ secrets.VPS_KNOWN_HOSTS }}" >> ~/.ssh/known_hosts
 
       - name: Deploy application
         env:
+          DEPLOY_HOST: ${{ secrets.VPS_HOST }}
+          DEPLOY_USER: ${{ secrets.VPS_USER }}
+          DEPLOY_PATH: leads-backend
           DEPLOY_ENV_CONTENT: ${{ secrets.DEPLOY_ENV_FILE }}
         run: |
           SSH_CMD="ssh -o StrictHostKeyChecking=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}"
-          APP_DIR="leads-backend"
 
           echo "::group::Sync code to server"
-          rsync -azP --delete --delete-excluded --no-group --no-owner \
+          rsync -azP --delete --no-group --no-owner \
             --exclude='.git' \
             --exclude='__pycache__' \
-            --exclude='*.pyc' \
             --exclude='.env' \
             --exclude='.mypy_cache' \
             --exclude='.pytest_cache' \
             --exclude='.ruff_cache' \
             --exclude='tests/' \
             -e "ssh -o StrictHostKeyChecking=yes" \
-            ./ "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:~/${APP_DIR}/"
+            ./ "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${DEPLOY_PATH}/"
           echo "::endgroup::"
 
           echo "::group::Write environment file"
-          printf '%s\n' "$DEPLOY_ENV_CONTENT" | ${SSH_CMD} "cat > ~/${APP_DIR}/.env"
+          printf '%s\n' "$DEPLOY_ENV_CONTENT" | ${SSH_CMD} "cat > ${DEPLOY_PATH}/.env"
           echo "::endgroup::"
 
           echo "::group::Build and deploy containers"
           ${SSH_CMD} << 'DEPLOY_EOF'
             set -euo pipefail
             cd ~/leads-backend
-            COMPOSE_FILE="docker-compose.prod.yml"
 
-            if docker compose version >/dev/null 2>&1; then
-              COMPOSE_CMD="docker compose"
-            elif command -v docker-compose >/dev/null 2>&1; then
-              COMPOSE_CMD="docker-compose"
-            else
-              echo "ERROR: docker compose not found"
-              exit 1
-            fi
+            echo ">> Building images..."
+            docker compose -f docker-compose.prod.yml build --no-cache
 
-            echo "▶ Stopping and removing app + migrate containers..."
-            $COMPOSE_CMD -f "$COMPOSE_FILE" rm -sf app migrate || true
+            echo ">> Running database migrations..."
+            docker compose -f docker-compose.prod.yml run --rm migrate
 
-            echo "▶ Removing stale leads-backend image..."
-            docker image rm -f leads-backend:latest 2>/dev/null || true
+            echo ">> Starting services..."
+            docker compose -f docker-compose.prod.yml up -d --force-recreate --remove-orphans
 
-            echo "▶ Cleaning bytecode caches in build context..."
-            find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-            find . -type f -name '*.pyc' -delete 2>/dev/null || true
+            echo ">> Waiting for services to stabilize..."
+            sleep 30
 
-            echo "▶ Building leads-backend:latest (no cache)..."
-            DOCKER_BUILDKIT=1 $COMPOSE_CMD -f "$COMPOSE_FILE" build --no-cache --pull app
-
-            echo "▶ Inspecting newly built image..."
-            BUILT_ID=$(docker image inspect --format '{{.Id}}' leads-backend:latest)
-            echo "    Image ID: $BUILT_ID"
-
-            echo "▶ Starting Postgres and Redis..."
-            $COMPOSE_CMD -f "$COMPOSE_FILE" up -d postgres redis
-
-            echo "▶ Waiting for Postgres..."
-            for i in $(seq 1 30); do
-              if $COMPOSE_CMD -f "$COMPOSE_FILE" exec -T postgres pg_isready -U leads >/dev/null 2>&1; then
-                break
-              fi
-              sleep 1
-            done
-
-            echo "▶ Running migrations..."
-            $COMPOSE_CMD -f "$COMPOSE_FILE" run --rm migrate
-
-            echo "▶ Starting app..."
-            $COMPOSE_CMD -f "$COMPOSE_FILE" up -d --force-recreate --remove-orphans app
-
-            echo "▶ Container status after up..."
-            $COMPOSE_CMD -f "$COMPOSE_FILE" ps app
-
-            echo "▶ Verifying app container is using the new image..."
-            sleep 3
-            APP_CONTAINER=$($COMPOSE_CMD -f "$COMPOSE_FILE" ps -q app)
-            if [ -z "$APP_CONTAINER" ]; then
-              echo "❌ App container does not exist after 'up'"
-              echo "▶ Last 50 log lines:"
-              $COMPOSE_CMD -f "$COMPOSE_FILE" logs --tail=50 app || true
-              exit 1
-            fi
-
-            RUNNING_ID=$(docker inspect --format '{{.Image}}' "$APP_CONTAINER")
-            echo "    Running image: $RUNNING_ID"
-            if [ "$BUILT_ID" != "$RUNNING_ID" ]; then
-              echo "❌ Container is NOT running the freshly built image"
-              exit 1
-            fi
-            echo "✅ App container is running the new image"
-
-            echo "▶ Pruning dangling images..."
+            echo ">> Pruning old images..."
             docker image prune -f
-
-            echo "✅ Deployed on port 8087"
           DEPLOY_EOF
           echo "::endgroup::"
 
-      - name: Health check
+      - name: Post-deploy health check
         run: |
           SSH_CMD="ssh -o StrictHostKeyChecking=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}"
 
-          echo "Checking health (retrying up to 60s)..."
+          echo "Checking health endpoint (retrying up to 60s)..."
           HEALTH_OK=false
           for i in $(seq 1 12); do
             if ${SSH_CMD} "curl -sf http://localhost:8087/api/v1/health" > /dev/null 2>&1; then
@@ -204,8 +148,7 @@ jobs:
           done
 
           if [ "$HEALTH_OK" != "true" ]; then
-            echo "::warning::Health check did not pass after 60s"
-            ${SSH_CMD} "cd ~/leads-backend && docker compose -f docker-compose.prod.yml logs --tail=20 app" || true
+            echo "::warning::Health check did not pass after 60s — containers may still be starting."
           fi
 
       - name: Deployment summary
@@ -215,9 +158,8 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Branch** | main |" >> $GITHUB_STEP_SUMMARY
           echo "| **PR** | #${{ github.event.pull_request.number }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Commit** | \`${GITHUB_SHA::8}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commit** | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Status** | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Health** | http://${{ secrets.VPS_HOST }}:8087/api/v1/health |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Time** | $(date -u +%Y-%m-%dT%H:%M:%SZ) |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Actor** | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
