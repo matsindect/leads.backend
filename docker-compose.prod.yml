@@ -30,6 +30,7 @@ services:
 
   migrate:
     build: .
+    image: leads-backend:latest
     user: root
     command: ["alembic", "-c", "/app/alembic.ini", "upgrade", "head"]
     env_file: .env
@@ -39,7 +40,9 @@ services:
 
   app:
     build: .
+    image: leads-backend:latest
     restart: unless-stopped
+    pull_policy: never
     ports:
       - "8087:8000"
     env_file: .env
