@@ -42,7 +42,6 @@ services:
     build: .
     image: leads-backend:latest
     restart: unless-stopped
-    pull_policy: never
     ports:
       - "8087:8000"
     env_file: .env

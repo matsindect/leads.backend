@@ -159,9 +159,20 @@ jobs:
             echo "▶ Starting app..."
             $COMPOSE_CMD -f "$COMPOSE_FILE" up -d --force-recreate --remove-orphans app
 
+            echo "▶ Container status after up..."
+            $COMPOSE_CMD -f "$COMPOSE_FILE" ps app
+
             echo "▶ Verifying app container is using the new image..."
             sleep 3
-            RUNNING_ID=$(docker inspect --format '{{.Image}}' $($COMPOSE_CMD -f "$COMPOSE_FILE" ps -q app))
+            APP_CONTAINER=$($COMPOSE_CMD -f "$COMPOSE_FILE" ps -q app)
+            if [ -z "$APP_CONTAINER" ]; then
+              echo "❌ App container does not exist after 'up'"
+              echo "▶ Last 50 log lines:"
+              $COMPOSE_CMD -f "$COMPOSE_FILE" logs --tail=50 app || true
+              exit 1
+            fi
+
+            RUNNING_ID=$(docker inspect --format '{{.Image}}' "$APP_CONTAINER")
             echo "    Running image: $RUNNING_ID"
             if [ "$BUILT_ID" != "$RUNNING_ID" ]; then
               echo "❌ Container is NOT running the freshly built image"
