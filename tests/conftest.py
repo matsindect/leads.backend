@@ -18,21 +18,18 @@ def settings() -> Settings:
 
 @pytest.fixture
 def sample_reddit_raw_post() -> dict:
-    """A realistic raw Reddit post dictionary."""
+    """A realistic raw Reddit RSS entry dictionary."""
     return {
-        "id": "abc123",
-        "name": "t3_abc123",
+        "id": "t3_abc123",
         "title": "We're hiring a senior Python developer for our growing SaaS startup",
-        "selftext": (
-            "Our company at acme.io is expanding and we need help with our "
+        "link": "https://www.reddit.com/r/startups/comments/abc123/were_hiring/",
+        "summary": (
+            "<p>Our company at acme.io is expanding and we need help with our "
             "FastAPI backend and React frontend. Budget is around $150k. "
-            "We use postgres, docker, and kubernetes in production."
+            "We use postgres, docker, and kubernetes in production.</p>"
         ),
-        "author": "startup_founder",
-        "permalink": "/r/startups/comments/abc123/were_hiring/",
-        "url": "https://www.reddit.com/r/startups/comments/abc123/were_hiring/",
-        "created_utc": 1712448000.0,  # 2024-04-07 00:00:00 UTC
-        "subreddit": "startups",
+        "author": "/user/startup_founder",
+        "published_at": datetime(2024, 4, 7, tzinfo=UTC),
         "_subreddit": "startups",
     }
 

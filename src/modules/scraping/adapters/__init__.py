@@ -28,10 +28,10 @@ AdapterFactory = Callable[..., "SourceAdapter | None"]
 
 
 def _reddit_factory(
-    *, reddit_fetcher: HttpFetcher, settings: Settings, **_: Any,
+    *, rss_fetcher: RssFetcher, settings: Settings, **_: Any,
 ) -> SourceAdapter:
     from modules.scraping.adapters.reddit import RedditAdapter
-    return RedditAdapter(fetcher=reddit_fetcher, settings=settings)
+    return RedditAdapter(fetcher=rss_fetcher, settings=settings)
 
 
 def _hackernews_factory(
