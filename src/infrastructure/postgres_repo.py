@@ -177,7 +177,7 @@ class PostgresLeadRepository:
                         signal_strength=lead.signal_strength,
                         title=lead.title,
                         body=lead.body,
-                        raw_payload=lead.raw_payload,
+                        raw_payload=_json_safe(lead.raw_payload),
                         company_name=lead.company_name,
                         company_domain=lead.company_domain,
                         person_name=lead.person_name,
@@ -535,3 +535,19 @@ class PostgresLeadRepository:
                 .limit(limit)
             )
             return [dict(row._mapping) for row in result.fetchall()]
+
+
+def _json_safe(value: Any) -> Any:
+    """Recursively convert datetimes to ISO strings so JSONB serialization works.
+
+    Adapters often pass through raw API responses that contain datetime objects
+    (e.g. RSS feed parsed dates).  Postgres' JSONB encoder can't serialize
+    those — convert them once here at the persistence boundary.
+    """
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
