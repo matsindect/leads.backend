@@ -89,8 +89,15 @@ class LeadRepository(Protocol):
         """Detailed health for all adapters."""
         ...
 
-    async def count_recent_failures(self, adapter_name: str, limit: int) -> int:
-        """Count consecutive recent failures for circuit-breaker logic."""
+    async def count_recent_failures(
+        self, adapter_name: str, limit: int, within_seconds: int | None = None
+    ) -> int:
+        """Count consecutive recent failures for circuit-breaker logic.
+
+        If ``within_seconds`` is given, only failures newer than that
+        cutoff count — older errors are ignored, allowing the breaker
+        to auto-reset after the cooldown period.
+        """
         ...
 
     async def check_connectivity(self) -> bool:

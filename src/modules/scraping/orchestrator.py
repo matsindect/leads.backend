@@ -107,9 +107,15 @@ class ScrapeOrchestrator:
         return report
 
     async def _is_circuit_open(self, adapter_name: str, log: structlog.stdlib.BoundLogger) -> bool:  # type: ignore[type-arg]
-        """Check if the adapter's circuit breaker is tripped."""
+        """Check if the adapter's circuit breaker is tripped.
+
+        Failures older than ``circuit_breaker_cooldown_seconds`` are ignored,
+        so the breaker auto-resets after the cooldown window expires.
+        """
         failures = await self._repository.count_recent_failures(
-            adapter_name, self._settings.circuit_breaker_threshold
+            adapter_name,
+            self._settings.circuit_breaker_threshold,
+            within_seconds=self._settings.circuit_breaker_cooldown_seconds,
         )
         if failures >= self._settings.circuit_breaker_threshold:
             log.warning("circuit_breaker_open", consecutive_failures=failures)

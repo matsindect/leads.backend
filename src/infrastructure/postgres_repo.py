@@ -293,9 +293,9 @@ class PostgresLeadRepository:
             )
             records_24h = int(count_result.scalar_one())
 
-            # Circuit breaker state
+            # Circuit breaker state — same cooldown semantics as the orchestrator
             consecutive_failures = await self._count_recent_failures_inner(
-                session, adapter_name, 3
+                session, adapter_name, 3, within_seconds=3600
             )
 
         return AdapterHealth(
@@ -312,21 +312,35 @@ class PostgresLeadRepository:
         """Detailed health for all adapters."""
         return [await self.get_adapter_health(name) for name in adapter_names]
 
-    async def count_recent_failures(self, adapter_name: str, limit: int) -> int:
+    async def count_recent_failures(
+        self, adapter_name: str, limit: int, within_seconds: int | None = None
+    ) -> int:
         """Count consecutive recent failures for circuit-breaker logic."""
         async with self._session_factory() as session:
-            return await self._count_recent_failures_inner(session, adapter_name, limit)
+            return await self._count_recent_failures_inner(
+                session, adapter_name, limit, within_seconds
+            )
 
     @staticmethod
     async def _count_recent_failures_inner(
-        session: AsyncSession, adapter_name: str, limit: int
+        session: AsyncSession,
+        adapter_name: str,
+        limit: int,
+        within_seconds: int | None = None,
     ) -> int:
-        """Shared implementation — counts consecutive failures from most recent run."""
+        """Shared implementation — counts consecutive failures from most recent run.
+
+        When ``within_seconds`` is set, runs older than that cutoff are
+        ignored, so the circuit breaker auto-resets after the cooldown.
+        """
+        query = sa.select(scrape_runs_table.c.status).where(
+            scrape_runs_table.c.adapter == adapter_name
+        )
+        if within_seconds is not None:
+            cutoff = datetime.now(UTC) - timedelta(seconds=within_seconds)
+            query = query.where(scrape_runs_table.c.started_at >= cutoff)
         result = await session.execute(
-            sa.select(scrape_runs_table.c.status)
-            .where(scrape_runs_table.c.adapter == adapter_name)
-            .order_by(scrape_runs_table.c.started_at.desc())
-            .limit(limit)
+            query.order_by(scrape_runs_table.c.started_at.desc()).limit(limit)
         )
         rows = result.fetchall()
         count = 0
