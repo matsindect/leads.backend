@@ -90,7 +90,7 @@ jobs:
           DEPLOY_PATH: leads-backend
           DEPLOY_ENV_CONTENT: ${{ secrets.DEPLOY_ENV_FILE }}
         run: |
-          SSH_CMD="ssh -o StrictHostKeyChecking=yes ${DEPLOY_USER}@${DEPLOY_HOST}"
+          SSH_CMD="ssh -o StrictHostKeyChecking=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}"
 
           echo "::group::Sync code to server"
           rsync -azP --delete --no-group --no-owner \
@@ -102,7 +102,7 @@ jobs:
             --exclude='.ruff_cache' \
             --exclude='tests/' \
             -e "ssh -o StrictHostKeyChecking=yes" \
-            ./ "${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/"
+            ./ "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${DEPLOY_PATH}/"
           echo "::endgroup::"
 
           echo "::group::Write environment file"
@@ -132,11 +132,8 @@ jobs:
           echo "::endgroup::"
 
       - name: Post-deploy health check
-        env:
-          DEPLOY_HOST: ${{ secrets.VPS_HOST }}
-          DEPLOY_USER: ${{ secrets.VPS_USER }}
         run: |
-          SSH_CMD="ssh -o StrictHostKeyChecking=yes ${DEPLOY_USER}@${DEPLOY_HOST}"
+          SSH_CMD="ssh -o StrictHostKeyChecking=yes ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}"
 
           echo "Checking health endpoint (retrying up to 60s)..."
           HEALTH_OK=false
