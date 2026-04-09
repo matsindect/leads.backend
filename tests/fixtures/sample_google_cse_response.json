@@ -1,0 +1,19 @@
+{
+  "items": [
+    {
+      "title": "We're hiring senior Python engineers - r/startups",
+      "link": "https://reddit.com/r/startups/abc123",
+      "snippet": "Our startup at acme.io is looking for experienced Python developers with FastAPI and Docker experience."
+    },
+    {
+      "title": "Evaluating alternatives to Datadog for monitoring",
+      "link": "https://news.ycombinator.com/item?id=99999",
+      "snippet": "We're comparing monitoring tools. Currently using Kubernetes and AWS, budget is tight."
+    },
+    {
+      "title": "Best sunset photos of 2024",
+      "link": "https://example.com/sunsets",
+      "snippet": "Check out these amazing sunset photographs from around the world."
+    }
+  ]
+}

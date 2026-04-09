@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lead-pipeline"
+version = "0.2.0"
+description = "Modular monolith: lead scraping + enrichment in one service."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.30,<1",
+    "sqlalchemy[asyncio]>=2.0,<3",
+    "asyncpg>=0.29,<1",
+    "redis>=5.0,<6",
+    "httpx[http2]>=0.27,<1",
+    "feedparser>=6.0,<7",
+    "beautifulsoup4>=4.12,<5",
+    "pydantic>=2.0,<3",
+    "pydantic-settings>=2.0,<3",
+    "structlog>=24.0,<25",
+    "tenacity>=8.2,<10",
+    "alembic>=1.13,<2",
+    "anthropic>=0.39,<1",
+    "openai>=1.40,<2",
+    "jinja2>=3.1,<4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9",
+    "pytest-asyncio>=0.23,<1",
+    "testcontainers[postgres,redis]>=4.0,<5",
+    "respx>=0.21,<1",
+    "mypy>=1.10,<2",
+    "ruff>=0.5,<1",
+]
+browser = [
+    "playwright>=1.40,<2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "browser: requires Playwright + Chromium (run with pytest -m browser)",
+]
+
+[tool.mypy]
+strict = true
+plugins = ["pydantic.mypy"]
+mypy_path = "src"
+packages = ["domain", "api", "application", "infrastructure", "modules"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "N"]

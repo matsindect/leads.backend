@@ -1,0 +1,27 @@
+{# Company Resolution Prompt
+   Inputs: title (str), body (str), person_name (str | None)
+   Expected output: JSON with keys "company_name" and "company_domain"
+   Model tier: CHEAP — this is a simple extraction task
+#}
+You are analyzing a social media post to identify the company the author works for or is affiliated with.
+
+Post title: {{ title }}
+
+Post body:
+{{ body[:2000] }}
+
+{% if person_name %}Author username: {{ person_name }}{% endif %}
+
+Extract the company name and website domain from this post. Look for:
+- Explicit mentions ("at CompanyName", "our company", "we at X")
+- Domain references (company.com, company.io, etc.)
+- Product/service names that imply a company
+
+Respond with ONLY a JSON object, no other text:
+{
+  "company_name": "string or null if not identifiable",
+  "company_domain": "domain.com or null if not identifiable"
+}
+
+If you cannot confidently identify a company, return null for both fields.
+Do NOT guess — only extract what is explicitly stated or strongly implied.

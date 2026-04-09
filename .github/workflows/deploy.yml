@@ -1,0 +1,41 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            set -e
+
+            APP_DIR=${{ secrets.DEPLOY_PATH || '~/leads-backend' }}
+
+            # Clone or pull latest code
+            if [ ! -d "$APP_DIR" ]; then
+              git clone ${{ secrets.REPO_URL || 'https://github.com/${{ github.repository }}.git' }} "$APP_DIR"
+            fi
+
+            cd "$APP_DIR"
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Build and deploy with zero-downtime restart
+            docker compose -f docker-compose.prod.yml build --no-cache app
+            docker compose -f docker-compose.prod.yml up -d postgres redis
+            docker compose -f docker-compose.prod.yml run --rm migrate
+            docker compose -f docker-compose.prod.yml up -d app
+
+            # Clean up old images
+            docker image prune -f
+
+            echo "Deployed successfully on port 8087"

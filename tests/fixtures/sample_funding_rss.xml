@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>TechCrunch Fundraising</title>
+    <link>https://techcrunch.com/category/fundraising/</link>
+    <item>
+      <title><![CDATA[Acme AI raises $25M Series A to build developer tools]]></title>
+      <link>https://techcrunch.com/2024/04/07/acme-ai-series-a/</link>
+      <guid>https://techcrunch.com/2024/04/07/acme-ai-series-a/</guid>
+      <pubDate>Sun, 07 Apr 2024 14:00:00 +0000</pubDate>
+      <description><![CDATA[Acme AI, the startup behind an AI-powered code review tool at acme.ai, has raised a $25M Series A round led by Sequoia. The company plans to expand its engineering team.]]></description>
+      <author>reporter@techcrunch.com</author>
+    </item>
+    <item>
+      <title><![CDATA[DevStack secures $3M seed round for its Kubernetes platform]]></title>
+      <link>https://techcrunch.com/2024/04/07/devstack-seed/</link>
+      <guid>https://techcrunch.com/2024/04/07/devstack-seed/</guid>
+      <pubDate>Sun, 07 Apr 2024 10:00:00 +0000</pubDate>
+      <description><![CDATA[DevStack, a startup from devstack.io building a managed Kubernetes platform, secured a $3M seed round. They use Go and Terraform.]]></description>
+    </item>
+    <item>
+      <title><![CDATA[Fashion startup Glamify gets acquired by BigRetail Corp]]></title>
+      <link>https://techcrunch.com/2024/04/07/glamify-acquired/</link>
+      <guid>https://techcrunch.com/2024/04/07/glamify-acquired/</guid>
+      <pubDate>Sun, 07 Apr 2024 08:00:00 +0000</pubDate>
+      <description><![CDATA[Glamify, a fashion e-commerce company, was acquired today.]]></description>
+    </item>
+  </channel>
+</rss>

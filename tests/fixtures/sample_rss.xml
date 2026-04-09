@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Remote OK Jobs</title>
+    <link>https://remoteok.com</link>
+    <lastBuildDate>Mon, 07 Apr 2024 12:00:00 +0000</lastBuildDate>
+    <item>
+      <title><![CDATA[Acme Corp - Senior Python Developer]]></title>
+      <link>https://remoteok.com/remote-jobs/12345</link>
+      <guid>https://remoteok.com/remote-jobs/12345</guid>
+      <pubDate>Mon, 07 Apr 2024 10:00:00 +0000</pubDate>
+      <description><![CDATA[Looking for a senior Python dev with FastAPI experience. Remote, full-time.]]></description>
+      <author>jobs@acmecorp.io</author>
+    </item>
+    <item>
+      <title><![CDATA[StartupX - Frontend React Engineer]]></title>
+      <link>https://remoteok.com/remote-jobs/12346</link>
+      <guid>https://remoteok.com/remote-jobs/12346</guid>
+      <pubDate>Mon, 07 Apr 2024 09:00:00 +0000</pubDate>
+      <description><![CDATA[Join our growing team. React, TypeScript, Next.js.]]></description>
+      <author>hr@startupx.com</author>
+    </item>
+    <item>
+      <title><![CDATA[DesignStudio - UI/UX Designer]]></title>
+      <link>https://remoteok.com/remote-jobs/12347</link>
+      <guid>https://remoteok.com/remote-jobs/12347</guid>
+      <pubDate>Mon, 07 Apr 2024 08:00:00 +0000</pubDate>
+      <description><![CDATA[Figma expert needed for our design system overhaul.]]></description>
+    </item>
+  </channel>
+</rss>

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Product Hunt — Today</title>
+    <link>https://www.producthunt.com</link>
+    <item>
+      <title><![CDATA[CodeReview AI — AI-powered code review for your team]]></title>
+      <link>https://www.producthunt.com/posts/codereview-ai</link>
+      <guid>https://www.producthunt.com/posts/codereview-ai</guid>
+      <pubDate>Sun, 07 Apr 2024 08:00:00 +0000</pubDate>
+      <description><![CDATA[Evaluate your team's code quality with AI. Built with Python and FastAPI. An alternative to existing review tools.]]></description>
+    </item>
+    <item>
+      <title><![CDATA[DesignFlow — Figma plugin for design systems]]></title>
+      <link>https://www.producthunt.com/posts/designflow</link>
+      <guid>https://www.producthunt.com/posts/designflow</guid>
+      <pubDate>Sun, 07 Apr 2024 07:00:00 +0000</pubDate>
+      <description><![CDATA[Create and manage design systems in Figma.]]></description>
+    </item>
+    <item>
+      <title><![CDATA[ScaleDB — Database scaling made simple]]></title>
+      <link>https://www.producthunt.com/posts/scaledb</link>
+      <guid>https://www.producthunt.com/posts/scaledb</guid>
+      <pubDate>Sun, 07 Apr 2024 06:00:00 +0000</pubDate>
+      <description><![CDATA[Scale your postgres database effortlessly. Growing fast with kubernetes support.]]></description>
+    </item>
+  </channel>
+</rss>

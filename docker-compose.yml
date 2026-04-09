@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: leads
+      POSTGRES_PASSWORD: leads
+      POSTGRES_DB: leads
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U leads"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  migrate:
+    build: .
+    command: >
+      sh -c "pip install alembic asyncpg sqlalchemy &&
+             alembic -c /app/alembic.ini upgrade head"
+    environment:
+      LEADS_DATABASE_URL: postgresql+asyncpg://leads:leads@postgres:5432/leads
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      LEADS_DATABASE_URL: postgresql+asyncpg://leads:leads@postgres:5432/leads
+      LEADS_REDIS_URL: redis://redis:6379/0
+      LEADS_LOG_JSON: "true"
+      LEADS_LOG_LEVEL: INFO
+      LEADS_ANTHROPIC_API_KEY: ${LEADS_ANTHROPIC_API_KEY:-}
+      LEADS_LLM_MODEL_CHEAP: claude-haiku-4-5-20251001
+      LEADS_LLM_MODEL_SMART: claude-sonnet-4-6
+      LEADS_DAILY_LLM_BUDGET_USD: "10.0"
+      LEADS_MAX_CONCURRENT_ENRICHMENTS: "5"
+      LEADS_EVENT_BUS_QUEUE_SIZE: "1000"
+      LEADS_RESWEEPER_INTERVAL_SECONDS: "300"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
