@@ -7,9 +7,7 @@ Events are published to the in-process EventBus (no Redis Streams).
 
 from __future__ import annotations
 
-import uuid
 from collections.abc import AsyncIterator
-from typing import Any
 
 import httpx
 import pytest
@@ -22,50 +20,43 @@ from application.bus import EventBus
 from config import Settings
 from domain.events import LeadCreated
 from infrastructure.bus_publisher import BusEventPublisher
+from infrastructure.fetchers.http import HttpFetcher
+from infrastructure.fetchers.rss import RssFetcher
 from infrastructure.postgres_repo import PostgresLeadRepository, metadata
 from modules.scraping.adapters.reddit import RedditAdapter
 from modules.scraping.orchestrator import ScrapeOrchestrator
 
-
-def _fake_reddit_response() -> dict[str, Any]:
-    """Build a minimal Reddit /new.json response."""
-    return {
-        "data": {
-            "children": [
-                {
-                    "data": {
-                        "id": f"integ_{uuid.uuid4().hex[:8]}",
-                        "title": "We're hiring Python developers at acme.io",
-                        "selftext": "Looking for someone with fastapi and docker experience.",
-                        "author": "test_user",
-                        "permalink": "/r/startups/comments/integ/test/",
-                        "url": "https://www.reddit.com/r/startups/comments/integ/test/",
-                        "created_utc": 1712448000.0,
-                        "subreddit": "startups",
-                    }
-                },
-                {
-                    "data": {
-                        "id": f"nosig_{uuid.uuid4().hex[:8]}",
-                        "title": "Beautiful sunset",
-                        "selftext": "No signal here.",
-                        "author": "tourist",
-                        "permalink": "/r/pics/comments/nosig/sunset/",
-                        "url": "https://www.reddit.com/r/pics/comments/nosig/sunset/",
-                        "created_utc": 1712448000.0,
-                        "subreddit": "startups",
-                    }
-                },
-            ]
-        }
-    }
+_FAKE_REDDIT_RSS = """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>r/startups</title>
+  <entry>
+    <id>t3_integ001</id>
+    <title>We're hiring Python developers at acme.io</title>
+    <link href="https://www.reddit.com/r/startups/comments/integ001/test/"/>
+    <updated>2024-04-07T12:00:00+00:00</updated>
+    <author><name>/user/test_user</name></author>
+    <content type="html">
+      &lt;p&gt;Looking for fastapi and docker experience.&lt;/p&gt;
+    </content>
+  </entry>
+  <entry>
+    <id>t3_nosig01</id>
+    <title>Beautiful sunset</title>
+    <link href="https://www.reddit.com/r/pics/comments/nosig01/sunset/"/>
+    <updated>2024-04-07T11:00:00+00:00</updated>
+    <author><name>/user/tourist</name></author>
+    <content type="html">&lt;p&gt;No signal here.&lt;/p&gt;</content>
+  </entry>
+</feed>
+"""
 
 
 def _mock_transport(request: httpx.Request) -> httpx.Response:
-    """Return fake Reddit API responses."""
+    """Return a fake Reddit RSS Atom feed."""
     return httpx.Response(
         status_code=200,
-        json=_fake_reddit_response(),
+        text=_FAKE_REDDIT_RSS,
+        headers={"content-type": "application/atom+xml"},
         request=request,
     )
 
@@ -74,7 +65,6 @@ def _mock_transport(request: httpx.Request) -> httpx.Response:
 def postgres_url() -> str:
     """Start a Postgres container and return its async connection URL."""
     with PostgresContainer("postgres:16-alpine") as pg:
-        # testcontainers returns psycopg2 URL; convert to asyncpg
         sync_url = pg.get_connection_url()
         async_url = sync_url.replace("psycopg2", "asyncpg")
         yield async_url  # type: ignore[misc]
@@ -96,12 +86,12 @@ async def test_full_scrape_integration(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Run a complete scrape cycle against real Postgres with in-process EventBus."""
-    settings = Settings(
-        reddit_subreddits=["startups"],
-    )
+    settings = Settings(reddit_subreddits=["startups"])
 
-    # Build components with mocked HTTP and in-process bus
     http_client = httpx.AsyncClient(transport=httpx.MockTransport(_mock_transport))
+    http_fetcher = HttpFetcher(http_client, user_agent="test/1.0")
+    rss_fetcher = RssFetcher(http_fetcher)
+
     event_bus = EventBus(max_queue_size=100)
     repository = PostgresLeadRepository(db_session_factory)
     publisher = BusEventPublisher(event_bus)
@@ -110,19 +100,16 @@ async def test_full_scrape_integration(
         publisher=publisher,
         settings=settings,
     )
-    adapter = RedditAdapter(client=http_client, settings=settings)
+    adapter = RedditAdapter(fetcher=rss_fetcher, settings=settings)
 
-    # Run the scrape
     report = await orchestrator.run(adapter)
 
-    # Assertions on the report
     assert report.adapter_name == "reddit"
     assert report.fetched == 2
-    assert report.normalized >= 1  # at least the hiring post
+    assert report.normalized >= 1
     assert report.inserted >= 1
     assert report.error is None
 
-    # Verify data persisted in Postgres
     async with db_session_factory() as session:
         result = await session.execute(text("SELECT COUNT(*) FROM raw_leads"))
         count = result.scalar_one()
@@ -132,10 +119,9 @@ async def test_full_scrape_integration(
         run_count = result.scalar_one()
         assert run_count == 1
 
-    # Verify events published to the in-process bus
     assert event_bus.queue_size(LeadCreated) >= 1
 
-    # Verify idempotency — running again should produce duplicates
+    # Idempotency: second run should produce duplicates
     report2 = await orchestrator.run(adapter)
     assert report2.duplicates >= 1 or report2.inserted == 0
 

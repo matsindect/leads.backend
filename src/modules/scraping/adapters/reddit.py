@@ -1,4 +1,8 @@
-"""Reddit source adapter — polls subreddit /new.json endpoints.
+"""Reddit source adapter — polls subreddit /new.rss feeds.
+
+Uses Reddit's public Atom feeds because their JSON API blocks
+datacenter/VPS IPs. RSS is delivered via the same fetch infrastructure
+as other RSS sources.
 
 Classifies posts via regex pattern matching against the signal taxonomy
 and extracts technology stack mentions.  Posts with no signal match are
@@ -9,23 +13,33 @@ Satisfies ``domain.interfaces.SourceAdapter``.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import re
 from typing import Any
 
 import structlog
 
 from config import Settings
 from domain.models import CanonicalLead
-from infrastructure.fetchers.http import HttpFetcher
+from infrastructure.fetchers.rss import RssFetcher
 from modules.scraping.signals import classify_signal, extract_domain, extract_stack
 
 logger = structlog.get_logger()
 
+# Reddit Atom feeds embed the post body as HTML inside <content>.
+# Strip tags for plain-text classification but keep raw too.
+_HTML_TAG = re.compile(r"<[^>]+>")
+
+# Reddit author URLs are like "/user/username" — extract just the name.
+_AUTHOR_NAME = re.compile(r"/user/([^/]+)")
+
+# Permalinks look like /r/startups/comments/abc123/title/
+_POST_ID = re.compile(r"/comments/([a-z0-9]+)/")
+
 
 class RedditAdapter:
-    """Fetches and normalizes leads from Reddit subreddit new queues."""
+    """Fetches and normalizes leads from Reddit subreddit RSS feeds."""
 
-    def __init__(self, fetcher: HttpFetcher, settings: Settings) -> None:
+    def __init__(self, fetcher: RssFetcher, settings: Settings) -> None:
         self._fetcher = fetcher
         self._settings = settings
 
@@ -38,35 +52,43 @@ class RedditAdapter:
         return self._settings.reddit_poll_interval_seconds
 
     async def fetch_raw(self) -> list[dict[str, Any]]:
-        """Poll configured subreddits' /new.json and merge results."""
+        """Poll configured subreddits' /new.rss feeds and merge entries."""
         all_posts: list[dict[str, Any]] = []
 
         for subreddit in self._settings.reddit_subreddits:
-            url = f"https://www.reddit.com/r/{subreddit}/new.json"
+            url = f"https://www.reddit.com/r/{subreddit}/new.rss"
             log = logger.bind(adapter=self.name, subreddit=subreddit)
 
-            response = await self._fetcher.get_json(
-                url,
-                params={"limit": str(self._settings.reddit_post_limit)},
-            )
+            try:
+                feed = await self._fetcher.fetch(url)
+            except Exception:
+                log.warning("reddit_fetch_failed", exc_info=True)
+                continue
 
-            children = response.data.get("data", {}).get("children", [])
-            for child in children:
-                post = child.get("data", {})
-                post["_subreddit"] = subreddit
-                all_posts.append(post)
+            for entry in feed.entries:
+                all_posts.append({
+                    "id": entry.id,
+                    "title": entry.title,
+                    "link": entry.link,
+                    "summary": entry.summary,
+                    "published_at": entry.published_at,
+                    "author": entry.author,
+                    "_subreddit": subreddit,
+                })
 
-            log.debug("subreddit_fetched", count=len(children))
+            log.debug("subreddit_fetched", count=len(feed.entries))
 
         return all_posts
 
     def normalize(self, raw: dict[str, Any]) -> CanonicalLead | None:
-        """Convert a raw Reddit post into a CanonicalLead.
+        """Convert a raw Reddit RSS entry into a CanonicalLead.
 
         Pure function — no I/O.  Returns None if no signal matches.
         """
         title = raw.get("title", "")
-        body = raw.get("selftext", "")
+        # RSS summary contains HTML — strip for classification, cap for storage
+        summary_html = raw.get("summary", "")
+        body = _HTML_TAG.sub("", summary_html).strip()
         combined_text = f"{title} {body}"
 
         signal_type, signal_strength = classify_signal(combined_text)
@@ -75,28 +97,34 @@ class RedditAdapter:
 
         stack_mentions = extract_stack(combined_text)
         company_domain = extract_domain(combined_text)
-        posted_at = _parse_timestamp(raw.get("created_utc"))
-
-        permalink = raw.get("permalink", "")
-        url = f"https://www.reddit.com{permalink}" if permalink else raw.get("url", "")
 
         return CanonicalLead(
             source="reddit",
-            source_id=raw.get("id", raw.get("name", "")),
-            url=url,
+            source_id=_extract_post_id(raw.get("link", "")) or raw.get("id", ""),
+            url=raw.get("link", ""),
             title=title,
             body=body[:5000],
             raw_payload=raw,
             signal_type=signal_type,
             signal_strength=signal_strength,
             company_domain=company_domain,
-            person_name=raw.get("author"),
+            person_name=_extract_author_name(raw.get("author")),
             stack_mentions=stack_mentions,
-            posted_at=posted_at,
+            posted_at=raw.get("published_at"),
         )
 
 
-def _parse_timestamp(utc_epoch: float | None) -> datetime | None:
-    if utc_epoch is None:
+def _extract_author_name(author: str | None) -> str | None:
+    """Reddit RSS author is sometimes '/user/name' or just 'name'."""
+    if not author:
         return None
-    return datetime.fromtimestamp(utc_epoch, tz=UTC)
+    match = _AUTHOR_NAME.search(author)
+    return match.group(1) if match else author
+
+
+def _extract_post_id(link: str) -> str | None:
+    """Extract Reddit post ID from a permalink for stable dedup."""
+    if not link:
+        return None
+    match = _POST_ID.search(link)
+    return match.group(1) if match else None
