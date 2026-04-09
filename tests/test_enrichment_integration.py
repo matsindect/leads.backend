@@ -7,10 +7,11 @@ Verifies the full pipeline: insert lead → publish event → enrich → persist
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from typing import Any, AsyncIterator
-from unittest.mock import AsyncMock
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime
+from typing import Any
 
+import httpx
 import pytest
 import pytest_asyncio
 from sqlalchemy import text
@@ -19,16 +20,13 @@ from testcontainers.postgres import PostgresContainer
 
 from application.bus import EventBus
 from config import Settings
-from domain.events import LeadCreated, LeadScored
+from domain.events import LeadScored
 from domain.interfaces import ModelHint
-from domain.models import AlreadyProcessed
+from domain.models import AlreadyProcessedError
 from infrastructure.postgres_repo import PostgresLeadRepository, metadata
 from infrastructure.prompt_loader import PromptLoader
 from modules.enrichment.company_resolver import LLMCompanyResolver
 from modules.enrichment.pipeline import EnrichmentPipeline
-
-import httpx
-
 
 CANNED_CLASSIFICATION = {
     "refined_signal_type": "hiring",
@@ -99,7 +97,7 @@ async def _insert_fake_lead(
                 "id": lead_id,
                 "sid": f"test_{lead_id.hex[:8]}",
                 "hash": uuid.uuid4().hex,
-                "posted": datetime.now(timezone.utc),
+                "posted": datetime.now(UTC),
             },
         )
     return lead_id
@@ -201,8 +199,8 @@ async def test_idempotency(
     # First run
     await pipeline.execute(lead_id)
 
-    # Second run — should raise AlreadyProcessed
-    with pytest.raises(AlreadyProcessed):
+    # Second run — should raise AlreadyProcessedError
+    with pytest.raises(AlreadyProcessedError):
         await pipeline.execute(lead_id)
 
     # Verify exactly one enrichment row

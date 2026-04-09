@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 
@@ -27,7 +27,7 @@ class PersistStage:
             raise ValueError("PersistStage requires classification and final_score")
 
         log = logger.bind(lead_id=str(context.lead_id), stage="persist")
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         result = context.classification
 
         # Upsert enrichment row (ON CONFLICT DO UPDATE for idempotency)

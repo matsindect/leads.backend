@@ -9,7 +9,8 @@ No changes to orchestration, storage, or API code are needed.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from config import Settings
@@ -26,53 +27,71 @@ AdapterFactory = Callable[..., "SourceAdapter | None"]
 # ---------------------------------------------------------------------------
 
 
-def _reddit_factory(*, reddit_fetcher: "HttpFetcher", settings: "Settings", **_: Any) -> "SourceAdapter":
+def _reddit_factory(
+    *, reddit_fetcher: HttpFetcher, settings: Settings, **_: Any,
+) -> SourceAdapter:
     from modules.scraping.adapters.reddit import RedditAdapter
     return RedditAdapter(fetcher=reddit_fetcher, settings=settings)
 
 
-def _hackernews_factory(*, default_fetcher: "HttpFetcher", settings: "Settings", **_: Any) -> "SourceAdapter":
+def _hackernews_factory(
+    *, default_fetcher: HttpFetcher, settings: Settings, **_: Any,
+) -> SourceAdapter:
     from modules.scraping.adapters.hackernews import HackerNewsAdapter
     return HackerNewsAdapter(fetcher=default_fetcher, settings=settings)
 
 
-def _remoteok_factory(*, rss_fetcher: "RssFetcher", settings: "Settings", **_: Any) -> "SourceAdapter":
+def _remoteok_factory(
+    *, rss_fetcher: RssFetcher, settings: Settings, **_: Any,
+) -> SourceAdapter:
     from modules.scraping.adapters.remoteok import RemoteOKAdapter
     return RemoteOKAdapter(fetcher=rss_fetcher, settings=settings)
 
 
-def _funding_factory(*, rss_fetcher: "RssFetcher", settings: "Settings", **_: Any) -> "SourceAdapter":
+def _funding_factory(
+    *, rss_fetcher: RssFetcher, settings: Settings, **_: Any,
+) -> SourceAdapter:
     from modules.scraping.adapters.funding import FundingAdapter
     return FundingAdapter(fetcher=rss_fetcher, settings=settings)
 
 
-def _producthunt_factory(*, rss_fetcher: "RssFetcher", settings: "Settings", **_: Any) -> "SourceAdapter":
+def _producthunt_factory(
+    *, rss_fetcher: RssFetcher, settings: Settings, **_: Any,
+) -> SourceAdapter:
     from modules.scraping.adapters.producthunt import ProductHuntAdapter
     return ProductHuntAdapter(fetcher=rss_fetcher, settings=settings)
 
 
-def _rss_multi_factory(*, rss_fetcher: "RssFetcher", settings: "Settings", **_: Any) -> "SourceAdapter | None":
+def _rss_multi_factory(
+    *, rss_fetcher: RssFetcher, settings: Settings, **_: Any,
+) -> SourceAdapter | None:
     if not settings.rss_feed_urls:
         return None  # disabled when no feeds configured
     from modules.scraping.adapters.rss_multi import RssMultiAdapter
     return RssMultiAdapter(fetcher=rss_fetcher, settings=settings)
 
 
-def _google_cse_factory(*, default_fetcher: "HttpFetcher", settings: "Settings", **_: Any) -> "SourceAdapter | None":
+def _google_cse_factory(
+    *, default_fetcher: HttpFetcher, settings: Settings, **_: Any,
+) -> SourceAdapter | None:
     if not settings.google_cse_api_key:
         return None  # disabled when no API key
     from modules.scraping.adapters.google_cse import GoogleCSEAdapter
     return GoogleCSEAdapter(fetcher=default_fetcher, settings=settings)
 
 
-def _wellfound_factory(*, browser_fetcher: "BrowserFetcher | None", settings: "Settings", **_: Any) -> "SourceAdapter | None":
+def _wellfound_factory(
+    *, browser_fetcher: BrowserFetcher | None, settings: Settings, **_: Any,
+) -> SourceAdapter | None:
     if browser_fetcher is None:
         return None  # requires Playwright
     from modules.scraping.adapters.wellfound import WellfoundAdapter
     return WellfoundAdapter(fetcher=browser_fetcher, settings=settings)
 
 
-def _linkedin_factory(*, browser_fetcher: "BrowserFetcher | None", settings: "Settings", **_: Any) -> "SourceAdapter | None":
+def _linkedin_factory(
+    *, browser_fetcher: BrowserFetcher | None, settings: Settings, **_: Any,
+) -> SourceAdapter | None:
     if browser_fetcher is None:
         return None  # requires Playwright
     from modules.scraping.adapters.linkedin import LinkedInAdapter
@@ -94,12 +113,12 @@ ADAPTER_FACTORIES: dict[str, AdapterFactory] = {
 
 def build_adapters(
     *,
-    reddit_fetcher: "HttpFetcher",
-    default_fetcher: "HttpFetcher",
-    rss_fetcher: "RssFetcher",
-    browser_fetcher: "BrowserFetcher | None" = None,
-    settings: "Settings",
-) -> dict[str, "SourceAdapter"]:
+    reddit_fetcher: HttpFetcher,
+    default_fetcher: HttpFetcher,
+    rss_fetcher: RssFetcher,
+    browser_fetcher: BrowserFetcher | None = None,
+    settings: Settings,
+) -> dict[str, SourceAdapter]:
     """Instantiate all registered adapters, skipping those that return None."""
     kwargs: dict[str, Any] = {
         "reddit_fetcher": reddit_fetcher,
@@ -108,7 +127,7 @@ def build_adapters(
         "browser_fetcher": browser_fetcher,
         "settings": settings,
     }
-    result: dict[str, "SourceAdapter"] = {}
+    result: dict[str, SourceAdapter] = {}
     for name, factory in ADAPTER_FACTORIES.items():
         adapter = factory(**kwargs)
         if adapter is not None:

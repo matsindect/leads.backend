@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -87,10 +87,12 @@ class TestComputeFinalScore:
         )
         score = compute_final_score(
             result,
-            posted_at=datetime.now(timezone.utc),  # fresh post
+            posted_at=datetime.now(UTC),  # fresh post
             user_skills=["python", "fastapi"],
         )
-        assert expected_min <= score <= expected_max, f"Score {score} not in [{expected_min}, {expected_max}]"
+        assert expected_min <= score <= expected_max, (
+            f"Score {score} not in [{expected_min}, {expected_max}]"
+        )
 
     def test_none_posted_at_uses_neutral_recency(self) -> None:
         """Missing posted_at should not crash, uses neutral 50."""
@@ -102,10 +104,10 @@ class TestComputeFinalScore:
         """A 3-day-old post should score lower than a fresh one."""
         result = _make_result()
         skills = ["python", "fastapi"]
-        fresh = compute_final_score(result, datetime.now(timezone.utc), skills)
+        fresh = compute_final_score(result, datetime.now(UTC), skills)
         old = compute_final_score(
             result,
-            datetime.now(timezone.utc) - timedelta(hours=72),
+            datetime.now(UTC) - timedelta(hours=72),
             skills,
         )
         assert fresh > old
@@ -113,7 +115,7 @@ class TestComputeFinalScore:
     def test_empty_user_skills_neutral(self) -> None:
         """No configured skills should give neutral stack score."""
         result = _make_result()
-        score = compute_final_score(result, datetime.now(timezone.utc), user_skills=[])
+        score = compute_final_score(result, datetime.now(UTC), user_skills=[])
         assert 0 <= score <= 100
 
     def test_no_stack_overlap_low_stack_score(self) -> None:
@@ -121,7 +123,7 @@ class TestComputeFinalScore:
         result = _make_result(stack=["ruby", "rails"])
         score = compute_final_score(
             result,
-            datetime.now(timezone.utc),
+            datetime.now(UTC),
             user_skills=["python", "fastapi"],
         )
         # Should still be a valid score, just lower stack component
@@ -152,19 +154,19 @@ class TestRecencyScore:
     """Verify the recency decay function."""
 
     def test_fresh_post(self) -> None:
-        assert _recency_score(datetime.now(timezone.utc)) == pytest.approx(100.0, abs=1)
+        assert _recency_score(datetime.now(UTC)) == pytest.approx(100.0, abs=1)
 
     def test_24h_old(self) -> None:
-        posted = datetime.now(timezone.utc) - timedelta(hours=24)
+        posted = datetime.now(UTC) - timedelta(hours=24)
         score = _recency_score(posted)
         assert 60 < score < 70  # ~66.7
 
     def test_72h_old(self) -> None:
-        posted = datetime.now(timezone.utc) - timedelta(hours=72)
+        posted = datetime.now(UTC) - timedelta(hours=72)
         assert _recency_score(posted) == 0.0
 
     def test_very_old(self) -> None:
-        posted = datetime.now(timezone.utc) - timedelta(days=30)
+        posted = datetime.now(UTC) - timedelta(days=30)
         assert _recency_score(posted) == 0.0
 
     def test_none_returns_neutral(self) -> None:

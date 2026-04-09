@@ -48,7 +48,10 @@ class OpenAIProvider:
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a structured data extraction assistant. Always respond with valid JSON.",
+                    "content": (
+                        "You are a structured data extraction assistant."
+                        " Always respond with valid JSON."
+                    ),
                 },
                 {"role": "user", "content": prompt},
             ],

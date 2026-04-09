@@ -7,7 +7,7 @@ often, so readability and clear weights are paramount.
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from domain.models import EnrichmentResult
 
@@ -24,12 +24,12 @@ def compute_final_score(
     # --- Component weights (must sum to 1.0) ---
     # These weights reflect how much each factor matters for
     # lead quality.  Tune them as you learn what converts.
-    W_SIGNAL = 0.20    # How strong is the buying signal?
-    W_ICP = 0.25       # Does this lead match our ideal customer profile?
-    W_URGENCY = 0.15   # How time-sensitive is their need?
-    W_DM = 0.15        # Is the poster a decision-maker?
-    W_STACK = 0.15     # Do their tools overlap with our skills?
-    W_RECENCY = 0.10   # How fresh is the post?
+    w_signal = 0.20    # How strong is the buying signal?
+    w_icp = 0.25       # Does this lead match our ideal customer profile?
+    w_urgency = 0.15   # How time-sensitive is their need?
+    w_dm = 0.15        # Is the poster a decision-maker?
+    w_stack = 0.15     # Do their tools overlap with our skills?
+    w_recency = 0.10   # How fresh is the post?
 
     signal_score = result.refined_signal_strength
     icp_score = result.icp_fit_score
@@ -40,12 +40,12 @@ def compute_final_score(
     recency_score = _recency_score(posted_at)
 
     raw = (
-        W_SIGNAL * signal_score
-        + W_ICP * icp_score
-        + W_URGENCY * urgency_score
-        + W_DM * dm_score
-        + W_STACK * stack_score
-        + W_RECENCY * recency_score
+        w_signal * signal_score
+        + w_icp * icp_score
+        + w_urgency * urgency_score
+        + w_dm * dm_score
+        + w_stack * stack_score
+        + w_recency * recency_score
     )
 
     # Skip penalty: if the LLM recommends skipping, hard-cap at 15
@@ -85,7 +85,7 @@ def _recency_score(posted_at: datetime | None) -> float:
     if posted_at is None:
         return 50.0  # unknown age gets neutral score
 
-    age_hours = (datetime.now(timezone.utc) - posted_at).total_seconds() / 3600
+    age_hours = (datetime.now(UTC) - posted_at).total_seconds() / 3600
 
     if age_hours <= 0:
         return 100.0

@@ -53,7 +53,13 @@ class LLMCompanyResolver:
         try:
             result = await self._llm.complete_structured(
                 prompt=prompt,
-                schema={"type": "object", "properties": {"company_name": {"type": "string"}, "company_domain": {"type": "string"}}},
+                schema={
+                    "type": "object",
+                    "properties": {
+                        "company_name": {"type": "string"},
+                        "company_domain": {"type": "string"},
+                    },
+                },
                 model_hint=ModelHint.CHEAP,
             )
 

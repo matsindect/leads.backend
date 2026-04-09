@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -52,7 +52,7 @@ def sample_canonical_lead() -> CanonicalLead:
         company_domain="acme.io",
         person_name="startup_founder",
         stack_mentions=["python", "fastapi"],
-        posted_at=datetime(2024, 4, 7, tzinfo=timezone.utc),
+        posted_at=datetime(2024, 4, 7, tzinfo=UTC),
     )
 
 
@@ -70,7 +70,7 @@ def sample_canonical_lead_no_domain() -> CanonicalLead:
         signal_strength=70,
         person_name="DevOps Dan",
         stack_mentions=["jenkins", "docker"],
-        posted_at=datetime(2024, 4, 7, tzinfo=timezone.utc),
+        posted_at=datetime(2024, 4, 7, tzinfo=UTC),
     )
 
 

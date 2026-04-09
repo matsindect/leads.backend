@@ -7,9 +7,9 @@ Events are published to the in-process EventBus (no Redis Streams).
 
 from __future__ import annotations
 
-import json
 import uuid
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 import pytest
@@ -19,12 +19,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from testcontainers.postgres import PostgresContainer
 
 from application.bus import EventBus
+from config import Settings
 from domain.events import LeadCreated
 from infrastructure.bus_publisher import BusEventPublisher
 from infrastructure.postgres_repo import PostgresLeadRepository, metadata
 from modules.scraping.adapters.reddit import RedditAdapter
 from modules.scraping.orchestrator import ScrapeOrchestrator
-from config import Settings
 
 
 def _fake_reddit_response() -> dict[str, Any]:

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from modules.scraping.dedup import compute_dedup_hash
 from domain.models import CanonicalLead
+from modules.scraping.dedup import compute_dedup_hash
 
 
 class TestDedupHash:

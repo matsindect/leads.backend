@@ -39,7 +39,6 @@ jobs:
 
       - name: Lint
         run: ruff check src/ tests/
-        continue-on-error: true
 
       - name: Syntax check
         run: python -m compileall src/ -q

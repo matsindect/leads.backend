@@ -5,10 +5,10 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from infrastructure.fetchers.http import HttpFetcher
-from modules.scraping.adapters.reddit import RedditAdapter
 from config import Settings
 from domain.models import SignalType
+from infrastructure.fetchers.http import HttpFetcher
+from modules.scraping.adapters.reddit import RedditAdapter
 
 
 @pytest.fixture
