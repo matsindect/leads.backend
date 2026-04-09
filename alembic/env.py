@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 from logging.config import fileConfig
 
-from alembic import context
-from sqlalchemy import pool
-from sqlalchemy.ext.asyncio import async_engine_from_config
+# Add src/ to Python path so `from infrastructure.xxx` imports work
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from infrastructure.postgres_repo import metadata as target_metadata
+from alembic import context  # noqa: E402
+from sqlalchemy import pool  # noqa: E402
+from sqlalchemy.ext.asyncio import async_engine_from_config  # noqa: E402
+
+from infrastructure.postgres_repo import metadata as target_metadata  # noqa: E402
 
 config = context.config
 
