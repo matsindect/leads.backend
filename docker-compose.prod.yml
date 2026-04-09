@@ -30,9 +30,8 @@ services:
 
   migrate:
     build: .
-    command: >
-      sh -c "pip install alembic asyncpg sqlalchemy &&
-             alembic -c /app/alembic.ini upgrade head"
+    user: root
+    command: ["alembic", "-c", "/app/alembic.ini", "upgrade", "head"]
     env_file: .env
     depends_on:
       postgres:
