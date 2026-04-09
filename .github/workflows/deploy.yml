@@ -111,58 +111,63 @@ jobs:
           printf '%s\n' "$DEPLOY_ENV_CONTENT" | ${SSH_CMD} "cat > ${DEPLOY_PATH}/.env"
           echo "::endgroup::"
 
-          echo "::group::Build and deploy containers"
-          ${SSH_CMD} << 'DEPLOY_EOF'
-            set -euxo pipefail
-            cd ~/leads-backend
+          echo "::group::Write deploy script to server"
+          cat > /tmp/deploy.sh << 'SCRIPT'
+          #!/bin/bash
+          set -euxo pipefail
+          cd ~/leads-backend
 
-            echo ">> Building app image..."
-            docker compose -f docker-compose.prod.yml build --no-cache --pull app
+          echo ">> Building app image..."
+          docker compose -f docker-compose.prod.yml build --no-cache --pull app
 
-            echo ">> Starting infrastructure (postgres + redis)..."
-            docker compose -f docker-compose.prod.yml up -d postgres redis
+          echo ">> Starting infrastructure..."
+          docker compose -f docker-compose.prod.yml up -d postgres redis
 
-            echo ">> Waiting for postgres to be healthy..."
-            for i in $(seq 1 30); do
-              if docker compose -f docker-compose.prod.yml exec -T postgres pg_isready -U leads >/dev/null 2>&1; then
-                break
-              fi
-              sleep 1
-            done
-
-            echo ">> Running migrations (one-shot)..."
-            docker compose -f docker-compose.prod.yml run --rm migrate
-
-            echo ">> Recreating app container only..."
-            docker compose -f docker-compose.prod.yml up -d --force-recreate --no-deps app
-
-            echo ">> Waiting 10s for app to boot..."
-            sleep 10
-
-            echo ">> Verifying app is running..."
-            APP_CONTAINER=$(docker compose -f docker-compose.prod.yml ps -q app)
-            if [ -z "$APP_CONTAINER" ]; then
-              echo "ERROR: App container not found"
-              docker compose -f docker-compose.prod.yml logs --tail=50 app || true
-              exit 1
+          echo ">> Waiting for postgres..."
+          for i in $(seq 1 30); do
+            if docker compose -f docker-compose.prod.yml exec -T postgres pg_isready -U leads >/dev/null 2>&1; then
+              echo "Postgres ready"
+              break
             fi
+            sleep 1
+          done
 
-            RUNNING=$(docker inspect --format '{{.State.Running}}' "$APP_CONTAINER")
-            if [ "$RUNNING" != "true" ]; then
-              echo "ERROR: App container exists but is not running"
-              docker compose -f docker-compose.prod.yml logs --tail=50 app || true
-              exit 1
-            fi
+          echo ">> Running migrations..."
+          docker compose -f docker-compose.prod.yml run --rm migrate
 
-            echo ">> Pruning old images..."
-            docker image prune -f
+          echo ">> Recreating app..."
+          docker compose -f docker-compose.prod.yml up -d --force-recreate --no-deps app
 
-            echo ">> Deploy complete"
-          DEPLOY_EOF
-          SSH_EXIT=$?
-          if [ "$SSH_EXIT" -ne 0 ]; then
-            echo "::error::Remote deploy failed with exit code $SSH_EXIT"
-            exit $SSH_EXIT
+          echo ">> Waiting for app to boot..."
+          sleep 10
+
+          echo ">> Verifying app..."
+          APP=$(docker compose -f docker-compose.prod.yml ps -q app)
+          if [ -z "$APP" ]; then
+            docker compose -f docker-compose.prod.yml logs --tail=50 app
+            exit 1
+          fi
+          if [ "$(docker inspect --format '{{.State.Running}}' "$APP")" != "true" ]; then
+            docker compose -f docker-compose.prod.yml logs --tail=50 app
+            exit 1
+          fi
+
+          echo ">> Pruning..."
+          docker image prune -f
+
+          echo ">> DEPLOY COMPLETE"
+          SCRIPT
+          scp -o StrictHostKeyChecking=yes /tmp/deploy.sh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/deploy.sh"
+          echo "::endgroup::"
+
+          echo "::group::Run deploy script"
+          set +e
+          ${SSH_CMD} "bash /tmp/deploy.sh"
+          DEPLOY_RC=$?
+          set -e
+          if [ "$DEPLOY_RC" -ne 0 ]; then
+            echo "::error::Deploy script failed with exit code $DEPLOY_RC"
+            exit $DEPLOY_RC
           fi
           echo "::endgroup::"
 
