@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
@@ -44,7 +44,7 @@ async def test_resweeper_republishes_stuck_leads(
     lead_id = uuid.uuid4()
 
     # Insert a lead stuck in pending_enrichment for > 10 minutes
-    old_time = datetime.now(timezone.utc) - timedelta(minutes=15)
+    old_time = datetime.now(UTC) - timedelta(minutes=15)
     async with db_session_factory() as session, session.begin():
         await session.execute(
             text("""

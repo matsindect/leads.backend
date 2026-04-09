@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 
@@ -39,7 +39,7 @@ class ScrapeOrchestrator:
         """
         run_id = uuid.uuid4()
         log = logger.bind(adapter=adapter.name, run_id=str(run_id))
-        started_at = datetime.now(timezone.utc)
+        started_at = datetime.now(UTC)
         start_ns = time.monotonic_ns()
 
         # Circuit breaker check
@@ -74,7 +74,11 @@ class ScrapeOrchestrator:
 
             # Emit events for newly inserted leads
             if inserted_ids:
-                signal = normalized[0].signal_type.value if normalized and normalized[0].signal_type else None
+                signal = (
+                    normalized[0].signal_type.value
+                    if normalized and normalized[0].signal_type
+                    else None
+                )
                 await self._publisher.publish_new_leads(
                     inserted_ids, adapter.name, signal
                 )

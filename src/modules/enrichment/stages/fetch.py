@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from uuid import UUID
 
 import structlog
 
 from domain.interfaces import EnrichmentRepository
-from domain.models import AlreadyProcessed, PipelineContext
+from domain.models import AlreadyProcessedError, PipelineContext
 
 logger = structlog.get_logger()
 
@@ -23,7 +22,7 @@ class FetchStage:
         self._repo = repository
 
     async def execute(self, context: PipelineContext) -> PipelineContext:
-        """Fetch lead row from DB. Raise AlreadyProcessed if terminal."""
+        """Fetch lead row from DB. Raise AlreadyProcessedError if terminal."""
         log = logger.bind(lead_id=str(context.lead_id), stage="fetch")
 
         status = await self._repo.get_lead_status(context.lead_id)
@@ -32,7 +31,7 @@ class FetchStage:
 
         if status in _TERMINAL_STATUSES:
             log.info("already_processed", status=status)
-            raise AlreadyProcessed(f"Lead {context.lead_id} already in status={status}")
+            raise AlreadyProcessedError(f"Lead {context.lead_id} already in status={status}")
 
         # Mark as enriching to claim the work
         await self._repo.update_lead_status(context.lead_id, "enriching")

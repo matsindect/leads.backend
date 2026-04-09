@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
@@ -75,12 +75,12 @@ class TestParseRelativeTime:
     def test_hours_ago(self) -> None:
         result = _parse_relative_time("2 hours ago")
         assert result is not None
-        assert (datetime.now(timezone.utc) - result).total_seconds() < 7300
+        assert (datetime.now(UTC) - result).total_seconds() < 7300
 
     def test_days_ago(self) -> None:
         result = _parse_relative_time("3 days ago")
         assert result is not None
-        assert (datetime.now(timezone.utc) - result).total_seconds() > 200000
+        assert (datetime.now(UTC) - result).total_seconds() > 200000
 
     def test_empty_returns_none(self) -> None:
         assert _parse_relative_time("") is None

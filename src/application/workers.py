@@ -17,8 +17,8 @@ import structlog
 
 from application.bus import EventBus
 from domain.events import LeadCreated
-from domain.models import AlreadyProcessed
-from modules.enrichment.stages.classify import BudgetExceeded
+from domain.models import AlreadyProcessedError
+from modules.enrichment.stages.classify import BudgetExceededError
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -40,7 +40,7 @@ class EnrichmentWorker:
 
     def __init__(
         self,
-        pipeline: "EnrichmentPipeline",
+        pipeline: EnrichmentPipeline,
         bus: EventBus,
         max_concurrent: int = 5,
     ) -> None:
@@ -78,9 +78,9 @@ class EnrichmentWorker:
                 await self._pipeline.execute(event.lead_id)
                 self._consecutive_failures = 0
                 self._events_processed += 1
-            except AlreadyProcessed:
+            except AlreadyProcessedError:
                 log.debug("already_processed")
-            except BudgetExceeded:
+            except BudgetExceededError:
                 log.warning("budget_paused")
             except Exception as exc:
                 self._consecutive_failures += 1
@@ -163,8 +163,8 @@ class PendingLeadsResweeper:
 
 
 async def start_background_workers(
-    app: "FastAPI",
-    pipeline: "EnrichmentPipeline",
+    app: FastAPI,
+    pipeline: EnrichmentPipeline,
     bus: EventBus,
     repository: object,
     settings: object,

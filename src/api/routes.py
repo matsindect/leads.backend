@@ -23,8 +23,8 @@ from api.dependencies import (
     SettingsDep,
 )
 from domain.events import LeadCreated
-from domain.models import AlreadyProcessed
-from modules.enrichment.stages.classify import BudgetExceeded
+from domain.models import AlreadyProcessedError
+from modules.enrichment.stages.classify import BudgetExceededError
 
 # TODO: Add auth middleware here when moving beyond internal network deployment.
 
@@ -136,20 +136,26 @@ async def enrich_lead(
 ) -> dict[str, Any]:
     """Manually trigger enrichment for a specific lead. Idempotent."""
     if not settings.enable_enrichment or pipeline is None:
-        raise HTTPException(status_code=503, detail="Enrichment is disabled. Set LEADS_ENABLE_ENRICHMENT=true.")
+        raise HTTPException(
+            status_code=503,
+            detail="Enrichment is disabled. Set LEADS_ENABLE_ENRICHMENT=true.",
+        )
 
     try:
         context = await pipeline.execute(lead_id)
-    except AlreadyProcessed:
+    except AlreadyProcessedError:
         return {"status": "already_processed", "lead_id": str(lead_id)}
-    except BudgetExceeded:
+    except BudgetExceededError:
         return {"status": "budget_paused", "lead_id": str(lead_id)}
 
     return {
         "status": "enriched",
         "lead_id": str(lead_id),
         "score": context.final_score,
-        "recommended_approach": context.classification.recommended_approach if context.classification else None,
+        "recommended_approach": (
+            context.classification.recommended_approach
+            if context.classification else None
+        ),
     }
 
 
@@ -172,7 +178,10 @@ async def reprocess_leads(
     Useful when scoring formula or prompts change.
     """
     if not settings.enable_enrichment:
-        raise HTTPException(status_code=503, detail="Enrichment is disabled. Set LEADS_ENABLE_ENRICHMENT=true.")
+        raise HTTPException(
+            status_code=503,
+            detail="Enrichment is disabled. Set LEADS_ENABLE_ENRICHMENT=true.",
+        )
     leads = await repository.get_pending_leads(
         statuses=[body.status],
         older_than_minutes=0,

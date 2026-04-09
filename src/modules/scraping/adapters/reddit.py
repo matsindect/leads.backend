@@ -9,7 +9,7 @@ Satisfies ``domain.interfaces.SourceAdapter``.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -99,4 +99,4 @@ class RedditAdapter:
 def _parse_timestamp(utc_epoch: float | None) -> datetime | None:
     if utc_epoch is None:
         return None
-    return datetime.fromtimestamp(utc_epoch, tz=timezone.utc)
+    return datetime.fromtimestamp(utc_epoch, tz=UTC)

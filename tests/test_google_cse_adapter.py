@@ -130,7 +130,7 @@ class TestGoogleCSEFetchRaw:
             200, json={"items": [{"title": "t", "link": "l", "snippet": "s"}]}
         )
 
-        results = await adapter.fetch_raw()
+        await adapter.fetch_raw()
         # Budget=1, so only 1 query should have been made
         assert route.call_count == 1
 

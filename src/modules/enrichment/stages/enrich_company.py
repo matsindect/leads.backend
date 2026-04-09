@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import structlog
@@ -56,8 +56,8 @@ class EnrichCompanyStage:
         data: dict = {
             "is_reachable": False,
             "homepage_title": None,
-            "enriched_at": datetime.now(timezone.utc),
-            "expires_at": datetime.now(timezone.utc) + timedelta(days=30),
+            "enriched_at": datetime.now(UTC),
+            "expires_at": datetime.now(UTC) + timedelta(days=30),
         }
 
         try:

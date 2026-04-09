@@ -7,18 +7,12 @@ HTTP should use this instead of calling httpx directly.  Zero domain knowledge.
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
-from typing import Any, Mapping
+from collections.abc import Mapping
+from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 import structlog
-from tenacity import (
-    RetryCallState,
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 from infrastructure.fetchers.base import (
     FetchResponse,
@@ -65,7 +59,10 @@ class HttpFetcher:
         timeout_sec: float | None = None,
     ) -> FetchResponse:
         """Fetch URL and parse response as JSON."""
-        return await self._fetch(url, parse="json", params=params, headers=headers, timeout_sec=timeout_sec)
+        return await self._fetch(
+            url, parse="json", params=params,
+            headers=headers, timeout_sec=timeout_sec,
+        )
 
     async def get_text(
         self,
@@ -76,7 +73,10 @@ class HttpFetcher:
         timeout_sec: float | None = None,
     ) -> FetchResponse:
         """Fetch URL and return raw text body."""
-        return await self._fetch(url, parse="text", params=params, headers=headers, timeout_sec=timeout_sec)
+        return await self._fetch(
+            url, parse="text", params=params,
+            headers=headers, timeout_sec=timeout_sec,
+        )
 
     async def post_json(
         self,
@@ -183,11 +183,9 @@ class HttpFetcher:
                     )
 
                 # Success
-                data: Any
-                if parse == "json":
-                    data = response.json()
-                else:
-                    data = response.text
+                data: Any = (
+                    response.json() if parse == "json" else response.text
+                )
 
                 return FetchResponse(
                     status=response.status_code,
@@ -244,7 +242,7 @@ def _first_reset(headers: Mapping[str, str], names: tuple[str, ...]) -> datetime
         val = headers.get(name)
         if val is not None:
             try:
-                return datetime.fromtimestamp(int(val), tz=timezone.utc)
+                return datetime.fromtimestamp(int(val), tz=UTC)
             except (ValueError, OSError):
                 continue
     return None

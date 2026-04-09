@@ -16,9 +16,9 @@ import structlog
 from application.bus import EventBus
 from config import Settings
 from domain.interfaces import CompanyResolver, EnrichmentRepository, LLMProvider
-from domain.models import AlreadyProcessed, PipelineContext
+from domain.models import PipelineContext
 from infrastructure.prompt_loader import PromptLoader
-from modules.enrichment.stages.classify import BudgetExceeded, ClassifyStage
+from modules.enrichment.stages.classify import ClassifyStage
 from modules.enrichment.stages.enrich_company import EnrichCompanyStage
 from modules.enrichment.stages.fetch import FetchStage
 from modules.enrichment.stages.persist import PersistStage
@@ -58,8 +58,8 @@ class EnrichmentPipeline:
     async def execute(self, lead_id: UUID) -> PipelineContext:
         """Run all stages sequentially. Returns the final context.
 
-        Raises AlreadyProcessed for idempotent skips.
-        Raises BudgetExceeded when daily LLM limit is hit.
+        Raises AlreadyProcessedError for idempotent skips.
+        Raises BudgetExceededError when daily LLM limit is hit.
         Other exceptions bubble up for the caller to handle.
         """
         context = PipelineContext(lead_id=lead_id)

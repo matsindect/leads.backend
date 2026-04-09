@@ -13,8 +13,9 @@ memory leak inherent in long-running Chromium instances.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 import structlog
 
@@ -133,10 +134,8 @@ class BrowserPool:
             self._browser = None
 
         if self._playwright is not None:
-            try:
+            with contextlib.suppress(Exception):
                 await self._playwright.stop()  # type: ignore[union-attr]
-            except Exception:
-                pass
             self._playwright = None
 
     async def close(self) -> None:

@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import random
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -182,4 +182,4 @@ def _parse_relative_time(text: str) -> datetime | None:
     seconds = amount * _TIME_MULTIPLIERS.get(unit, 0)
     if not seconds:
         return None
-    return datetime.now(timezone.utc) - timedelta(seconds=seconds)
+    return datetime.now(UTC) - timedelta(seconds=seconds)

@@ -3,19 +3,18 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
 
-from domain.models import AlreadyProcessed, EnrichmentResult, PipelineContext
-from modules.enrichment.stages.classify import BudgetExceeded, ClassifyStage
+from domain.models import AlreadyProcessedError, EnrichmentResult, PipelineContext
+from modules.enrichment.stages.classify import BudgetExceededError, ClassifyStage
 from modules.enrichment.stages.enrich_company import EnrichCompanyStage
 from modules.enrichment.stages.fetch import FetchStage
 from modules.enrichment.stages.persist import PersistStage
 from modules.enrichment.stages.resolve_company import ResolveCompanyStage
 from modules.enrichment.stages.score import ScoreStage
-
 
 LEAD_ID = uuid.uuid4()
 
@@ -29,7 +28,7 @@ FAKE_LEAD_DATA = {
     "company_domain": "acme.io",
     "person_name": "founder",
     "stack_mentions": ["python", "fastapi"],
-    "posted_at": datetime(2024, 4, 7, tzinfo=timezone.utc),
+    "posted_at": datetime(2024, 4, 7, tzinfo=UTC),
     "status": "new",
 }
 
@@ -83,7 +82,7 @@ class TestFetchStage:
         repo.get_lead_status.return_value = "scored"
 
         stage = FetchStage(repo)
-        with pytest.raises(AlreadyProcessed):
+        with pytest.raises(AlreadyProcessedError):
             await stage.execute(PipelineContext(lead_id=LEAD_ID))
 
     @pytest.mark.asyncio
@@ -161,8 +160,9 @@ class TestClassifyStage:
         repo.get_daily_llm_cost.return_value = 0.0
         repo.log_llm_call = AsyncMock()
 
-        from config import Settings
         from unittest.mock import MagicMock
+
+        from config import Settings
 
         loader = MagicMock()
         loader.render.return_value = "test prompt"
@@ -183,8 +183,9 @@ class TestClassifyStage:
         repo.get_daily_llm_cost.return_value = 999.0
         repo.update_lead_status = AsyncMock()
 
-        from config import Settings
         from unittest.mock import MagicMock
+
+        from config import Settings
 
         loader = MagicMock()
         settings = Settings(daily_llm_budget_usd=10.0)
@@ -192,7 +193,7 @@ class TestClassifyStage:
         stage = ClassifyStage(llm, repo, loader, settings)
         ctx = PipelineContext(lead_id=LEAD_ID, lead_data=FAKE_LEAD_DATA)
 
-        with pytest.raises(BudgetExceeded):
+        with pytest.raises(BudgetExceededError):
             await stage.execute(ctx)
         repo.update_lead_status.assert_awaited_with(LEAD_ID, "budget_paused")
 
@@ -244,7 +245,7 @@ class TestPersistStage:
             final_score=78.5,
         )
 
-        result = await stage.execute(ctx)
+        await stage.execute(ctx)
 
         repo.upsert_enrichment.assert_awaited_once()
         repo.update_lead_scores.assert_awaited_once()

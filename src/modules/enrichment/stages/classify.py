@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any
 
 import structlog
 from pydantic import BaseModel, Field
@@ -60,7 +59,9 @@ class ClassifyStage:
         if daily_cost >= self._settings.daily_llm_budget_usd:
             log.warning("budget_exceeded", daily_cost=daily_cost)
             await self._repo.update_lead_status(context.lead_id, "budget_paused")
-            raise BudgetExceeded(f"Daily LLM budget ${self._settings.daily_llm_budget_usd} exceeded")
+            raise BudgetExceededError(
+                f"Daily LLM budget ${self._settings.daily_llm_budget_usd} exceeded"
+            )
 
         prompt = self._prompt_loader.render(
             "lead_classification.jinja2",
@@ -102,7 +103,11 @@ class ClassifyStage:
             cost_usd=cost,
         )
 
-        log.info("classified", approach=validated.recommended_approach, strength=validated.refined_signal_strength)
+        log.info(
+            "classified",
+            approach=validated.recommended_approach,
+            strength=validated.refined_signal_strength,
+        )
 
         enrichment = EnrichmentResult(
             refined_signal_type=validated.refined_signal_type,
@@ -120,5 +125,5 @@ class ClassifyStage:
         return replace(context, classification=enrichment)
 
 
-class BudgetExceeded(Exception):
+class BudgetExceededError(Exception):
     """Raised when the daily LLM budget is exceeded."""

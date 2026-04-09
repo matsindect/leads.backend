@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Any
 
 
-class SignalType(str, enum.Enum):
+class SignalType(enum.StrEnum):
     """Classification of the buying / interest signal detected."""
 
     HIRING = "hiring"
@@ -127,5 +127,5 @@ class EnrichmentResult:
     skip_reason: str | None = None
 
 
-class AlreadyProcessed(Exception):
+class AlreadyProcessedError(Exception):
     """Raised when a lead has already been enriched (idempotency guard)."""

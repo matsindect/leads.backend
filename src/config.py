@@ -49,7 +49,10 @@ class Settings(BaseSettings):
     browser_restart_after_pages: int = Field(default=100)
     browser_page_timeout_sec: float = Field(default=30.0)
     browser_user_agent: str = Field(
-        default="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        default=(
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+            " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ),
     )
 
     # --- Reddit adapter ---
@@ -80,7 +83,9 @@ class Settings(BaseSettings):
     rss_multi_poll_interval_seconds: int = Field(default=1800)
 
     # --- Google Custom Search Engine ---
-    google_cse_api_key: str = Field(default="", description="Google CSE API key. Empty = adapter disabled.")
+    google_cse_api_key: str = Field(
+        default="", description="Google CSE API key. Empty = disabled.",
+    )
     google_cse_engine_id: str = Field(default="", description="Google CSE search engine ID (cx).")
     google_cse_queries: list[str] = Field(
         default=["site:reddit.com hiring developer", "startup looking for developer"],

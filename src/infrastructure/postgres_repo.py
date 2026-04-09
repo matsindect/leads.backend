@@ -7,8 +7,9 @@ Satisfies ``domain.interfaces.LeadRepository`` and ``domain.interfaces.Enrichmen
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timedelta, timezone
-from typing import Any, Sequence
+from collections.abc import Sequence
+from datetime import UTC, date, datetime, timedelta
+from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy import (
@@ -22,7 +23,6 @@ from sqlalchemy import (
     MetaData,
     Numeric,
     SmallInteger,
-    String,
     Table,
     Text,
     text,
@@ -30,13 +30,13 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from modules.scraping.dedup import compute_dedup_hash
 from domain.models import (
     AdapterHealth,
     AdapterInfo,
     CanonicalLead,
     RunReport,
 )
+from modules.scraping.dedup import compute_dedup_hash
 
 metadata = MetaData()
 
@@ -88,7 +88,11 @@ scrape_runs_table = Table(
 lead_enrichments_table = Table(
     "lead_enrichments",
     metadata,
-    Column("lead_id", UUID(as_uuid=True), ForeignKey("raw_leads.id", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "lead_id", UUID(as_uuid=True),
+        ForeignKey("raw_leads.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
     Column("refined_signal_type", Text),
     Column("refined_signal_strength", SmallInteger),
     Column("company_stage", Text),
@@ -279,7 +283,7 @@ class PostgresLeadRepository:
             error_row = error_result.fetchone()
 
             # Records in last 24h
-            cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+            cutoff = datetime.now(UTC) - timedelta(hours=24)
             count_result = await session.execute(
                 sa.select(sa.func.coalesce(sa.func.sum(scrape_runs_table.c.inserted), 0))
                 .where(
@@ -413,7 +417,7 @@ class PostgresLeadRepository:
             result = await session.execute(
                 sa.select(company_enrichments_table).where(
                     company_enrichments_table.c.domain == domain,
-                    company_enrichments_table.c.expires_at > datetime.now(timezone.utc),
+                    company_enrichments_table.c.expires_at > datetime.now(UTC),
                 )
             )
             row = result.fetchone()
@@ -485,7 +489,7 @@ class PostgresLeadRepository:
     async def get_daily_llm_cost(self, day: date | None = None) -> float:
         """Sum cost_usd for a given day (default: today)."""
         target = day or date.today()
-        day_start = datetime.combine(target, datetime.min.time(), tzinfo=timezone.utc)
+        day_start = datetime.combine(target, datetime.min.time(), tzinfo=UTC)
         day_end = day_start + timedelta(days=1)
         async with self._session_factory() as session:
             result = await session.execute(
@@ -520,7 +524,7 @@ class PostgresLeadRepository:
         self, statuses: Sequence[str], older_than_minutes: int, limit: int
     ) -> list[dict[str, Any]]:
         """Find leads stuck in intermediate statuses for resweep."""
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=older_than_minutes)
+        cutoff = datetime.now(UTC) - timedelta(minutes=older_than_minutes)
         async with self._session_factory() as session:
             result = await session.execute(
                 sa.select(raw_leads_table)

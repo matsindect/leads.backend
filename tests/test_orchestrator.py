@@ -3,21 +3,17 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from typing import Sequence
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
 
-from modules.scraping.orchestrator import ScrapeOrchestrator
 from config import Settings
 from domain.models import (
-    AdapterHealth,
-    AdapterInfo,
     CanonicalLead,
-    RunReport,
     SignalType,
 )
+from modules.scraping.orchestrator import ScrapeOrchestrator
 
 
 class FakeAdapter:
@@ -53,7 +49,7 @@ def _make_lead(source_id: str) -> CanonicalLead:
         raw_payload={"id": source_id},
         signal_type=SignalType.HIRING,
         signal_strength=60,
-        posted_at=datetime(2024, 4, 7, tzinfo=timezone.utc),
+        posted_at=datetime(2024, 4, 7, tzinfo=UTC),
     )
 
 

@@ -7,8 +7,9 @@ The orchestrator and API layers depend only on these protocols.
 from __future__ import annotations
 
 import enum
+from collections.abc import Sequence
 from datetime import date, datetime
-from typing import Any, Protocol, Sequence
+from typing import Any, Protocol
 from uuid import UUID
 
 from domain.models import (
@@ -17,7 +18,6 @@ from domain.models import (
     CanonicalLead,
     RunReport,
 )
-
 
 # ---------------------------------------------------------------------------
 # Scraping protocols (existing)
@@ -117,7 +117,7 @@ class EventPublisher(Protocol):
 # ---------------------------------------------------------------------------
 
 
-class ModelHint(str, enum.Enum):
+class ModelHint(enum.StrEnum):
     """Guides the LLM provider to choose an appropriate model tier."""
 
     CHEAP = "cheap"

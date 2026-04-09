@@ -6,10 +6,10 @@ they have zero knowledge of leads, signals, or domain concepts.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Mapping
-
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Response types
