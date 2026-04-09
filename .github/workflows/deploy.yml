@@ -1,41 +1,164 @@
-name: Deploy to Production
+# Deploy Lead Pipeline — triggered by merged PR to `main` branch
+#
+# Required GitHub Secrets (scoped to 'production' environment):
+#   VPS_HOST           - Server IP or hostname
+#   VPS_USER           - SSH username
+#   VPS_SSH_KEY        - SSH private key (passphrase-protected)
+#   VPS_SSH_PASSPHRASE - SSH key passphrase
+#   VPS_KNOWN_HOSTS    - Output of `ssh-keyscan $VPS_HOST`
+
+name: Deploy Lead Pipeline
 
 on:
-  push:
-    branches: [main]
+  pull_request:
+    types: [closed]
+    branches:
+      - dev
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: true
 
 jobs:
-  deploy:
+  quality:
+    name: Quality Gates
     runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true
+
     steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          password: ${{ secrets.SSH_PASSWORD }}
-          port: ${{ secrets.SSH_PORT || 22 }}
-          script: |
-            set -e
+          python-version: '3.11'
 
-            APP_DIR=${{ secrets.DEPLOY_PATH || '~/leads-backend' }}
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
 
-            # Clone or pull latest code
-            if [ ! -d "$APP_DIR" ]; then
-              git clone ${{ secrets.REPO_URL || 'https://github.com/${{ github.repository }}.git' }} "$APP_DIR"
-            fi
+      - name: Lint
+        run: ruff check src/ tests/
+        continue-on-error: true
+
+      - name: Syntax check
+        run: python -m compileall src/ -q
+
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: quality
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create deployment archive
+        run: git archive --format=tar.gz -o app.tar.gz HEAD
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          echo "${{ secrets.VPS_KNOWN_HOSTS }}" > ~/.ssh/known_hosts && chmod 644 ~/.ssh/known_hosts
+
+          eval $(ssh-agent -s)
+          echo "SSH_AUTH_SOCK=$SSH_AUTH_SOCK" >> $GITHUB_ENV
+          echo "SSH_AGENT_PID=$SSH_AGENT_PID" >> $GITHUB_ENV
+
+          ASKPASS=$(mktemp)
+          cat > "$ASKPASS" << 'ASKEOF'
+          #!/bin/sh
+          echo "$SSH_PASSPHRASE"
+          ASKEOF
+          chmod +x "$ASKPASS"
+          SSH_PASSPHRASE="${{ secrets.VPS_SSH_PASSPHRASE }}" SSH_ASKPASS="$ASKPASS" SSH_ASKPASS_REQUIRE=force ssh-add ~/.ssh/deploy_key
+          rm -f ~/.ssh/deploy_key "$ASKPASS"
+
+      - name: Upload archive
+        run: |
+          scp -o StrictHostKeyChecking=yes \
+            app.tar.gz \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/tmp/leads-backend.tar.gz
+
+      - name: Deploy on server
+        run: |
+          ssh ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} bash -s << 'DEPLOY'
+            set -euo pipefail
+
+            APP_DIR="$HOME/leads-backend"
+            COMPOSE_FILE="docker-compose.prod.yml"
+            TAR="/tmp/leads-backend.tar.gz"
+
+            echo "▶ Preparing deployment directory..."
+            mkdir -p "$APP_DIR"
+
+            echo "▶ Extracting new code..."
+            # Preserve .env file across deploys
+            [ -f "$APP_DIR/.env" ] && cp "$APP_DIR/.env" /tmp/leads-env-backup
+            rm -rf "$APP_DIR"/*
+            tar -xzf "$TAR" -C "$APP_DIR"
+            [ -f /tmp/leads-env-backup ] && mv /tmp/leads-env-backup "$APP_DIR/.env"
 
             cd "$APP_DIR"
-            git fetch origin main
-            git reset --hard origin/main
 
-            # Build and deploy with zero-downtime restart
-            docker compose -f docker-compose.prod.yml build --no-cache app
-            docker compose -f docker-compose.prod.yml up -d postgres redis
-            docker compose -f docker-compose.prod.yml run --rm migrate
-            docker compose -f docker-compose.prod.yml up -d app
+            echo "▶ Detecting docker compose..."
+            if docker compose version >/dev/null 2>&1; then
+              COMPOSE_CMD="docker compose"
+            elif command -v docker-compose >/dev/null 2>&1; then
+              COMPOSE_CMD="docker-compose"
+            else
+              echo "ERROR: docker compose not found on server"
+              exit 1
+            fi
 
-            # Clean up old images
+            echo "▶ Building app image..."
+            $COMPOSE_CMD -f "$COMPOSE_FILE" build --no-cache app
+
+            echo "▶ Starting Postgres and Redis..."
+            $COMPOSE_CMD -f "$COMPOSE_FILE" up -d postgres redis
+
+            echo "▶ Waiting for Postgres health..."
+            for i in $(seq 1 30); do
+              if $COMPOSE_CMD -f "$COMPOSE_FILE" exec -T postgres pg_isready -U leads >/dev/null 2>&1; then
+                break
+              fi
+              sleep 1
+            done
+
+            echo "▶ Running migrations..."
+            $COMPOSE_CMD -f "$COMPOSE_FILE" run --rm migrate
+
+            echo "▶ Starting app..."
+            $COMPOSE_CMD -f "$COMPOSE_FILE" up -d app
+
+            echo "▶ Waiting for health check..."
+            sleep 5
+            if $COMPOSE_CMD -f "$COMPOSE_FILE" ps | grep -q "Up"; then
+              echo "✅ App container is running"
+            else
+              echo "⚠️ Container may not be healthy. Checking logs..."
+              $COMPOSE_CMD -f "$COMPOSE_FILE" logs --tail=20 app
+              exit 1
+            fi
+
+            echo "▶ Cleaning up..."
+            rm -f "$TAR"
             docker image prune -f
 
-            echo "Deployed successfully on port 8087"
+            echo "✅ Deployed lead-pipeline on port 8087"
+          DEPLOY
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "## Deploy - Success ✅" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## Deploy - Failed ❌" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "**Commit:** \`${GITHUB_SHA::8}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Health:** http://${{ secrets.VPS_HOST }}:8087/api/v1/health" >> $GITHUB_STEP_SUMMARY
+          echo "**Time:** $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_STEP_SUMMARY
+          echo "**Actor:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
