@@ -6,6 +6,7 @@ Entry point: ``uvicorn main:create_app --factory``
 from __future__ import annotations
 
 import asyncio
+import logging
 import signal
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -36,11 +37,10 @@ def _configure_logging(settings: Settings) -> None:
     else:
         processors.append(structlog.dev.ConsoleRenderer())
 
+    log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
     structlog.configure(
         processors=processors,
-        wrapper_class=structlog.make_filtering_bound_logger(
-            structlog.get_level_from_name(settings.log_level)
-        ),
+        wrapper_class=structlog.make_filtering_bound_logger(log_level),
         context_class=dict,
         logger_factory=structlog.PrintLoggerFactory(),
         cache_logger_on_first_use=True,

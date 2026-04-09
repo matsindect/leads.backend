@@ -124,8 +124,8 @@ jobs:
               exit 1
             fi
 
-            echo "▶ Building app image..."
-            $COMPOSE_CMD -f "$COMPOSE_FILE" build --no-cache app
+            echo "▶ Building app and migrate images..."
+            $COMPOSE_CMD -f "$COMPOSE_FILE" build --no-cache app migrate
 
             echo "▶ Starting Postgres and Redis..."
             $COMPOSE_CMD -f "$COMPOSE_FILE" up -d postgres redis
@@ -142,7 +142,7 @@ jobs:
             $COMPOSE_CMD -f "$COMPOSE_FILE" run --rm migrate
 
             echo "▶ Starting app..."
-            $COMPOSE_CMD -f "$COMPOSE_FILE" up -d --force-recreate --remove-orphans app
+            $COMPOSE_CMD -f "$COMPOSE_FILE" up -d --build --force-recreate --remove-orphans app
 
             echo "▶ Pruning old images..."
             docker image prune -f
