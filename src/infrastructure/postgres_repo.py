@@ -190,11 +190,18 @@ class PostgresLeadRepository:
                     .on_conflict_do_nothing(index_elements=["dedup_hash"])
                     .returning(raw_leads_table.c.id)
                 )
-                result = await session.execute(stmt)
-                row = result.fetchone()
-                if row is not None:
-                    inserted_ids.append(row[0])
-                else:
+                try:
+                    result = await session.execute(stmt)
+                    row = result.fetchone()
+                    if row is not None:
+                        inserted_ids.append(row[0])
+                    else:
+                        duplicates += 1
+                except sa.exc.IntegrityError:
+                    # Second unique constraint (source, source_id) hit —
+                    # same entry with a different dedup hash. Skip it.
+                    await session.rollback()
+                    await session.begin()
                     duplicates += 1
 
         return inserted_ids, duplicates
