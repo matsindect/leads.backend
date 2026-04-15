@@ -1,54 +1,39 @@
-"""LinkedIn adapter — scrapes public job listings via Playwright.
+"""LinkedIn adapter — fetches jobs and posts via RapidAPI.
 
-Uses BrowserFetcher with anti-bot precautions: random delays between
-page loads, high poll interval (4h), realistic UA, graceful auth-wall
-detection.
+Uses the Fresh LinkedIn Profile Data API to search for job postings
+and organic LinkedIn posts.  No browser/Playwright needed — pure
+HTTP API calls via HttpFetcher.
 
 Satisfies ``domain.interfaces.SourceAdapter``.
 """
 
 from __future__ import annotations
 
-import asyncio
-import random
-import re
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 import structlog
-from bs4 import BeautifulSoup
 
 from config import Settings
 from domain.models import CanonicalLead, SignalType
-from infrastructure.fetchers.browser import BrowserFetcher
-from modules.scraping.signals import extract_stack
+from infrastructure.fetchers.http import HttpFetcher
+from modules.scraping.signals import classify_signal, extract_stack
 
 logger = structlog.get_logger()
 
-_BASE_URL = "https://www.linkedin.com/jobs/search/"
-_WAIT_SELECTOR = ".jobs-search__results-list, .job-search-card"
-
-# Detect LinkedIn auth wall
-_AUTH_WALL_INDICATORS = ("authwall", "login", "sign in to linkedin")
-
-# Parse relative time strings: "2 hours ago", "1 day ago", "3 weeks ago"
-_RELATIVE_TIME = re.compile(r"(\d+)\s+(minute|hour|day|week|month)s?\s+ago", re.I)
-
-_TIME_MULTIPLIERS = {
-    "minute": 60,
-    "hour": 3600,
-    "day": 86400,
-    "week": 604800,
-    "month": 2592000,
-}
+_BASE_URL = "https://fresh-linkedin-profile-data.p.rapidapi.com"
 
 
 class LinkedInAdapter:
-    """Scrapes public LinkedIn job listings."""
+    """Fetches LinkedIn jobs and posts via RapidAPI."""
 
-    def __init__(self, fetcher: BrowserFetcher, settings: Settings) -> None:
+    def __init__(self, fetcher: HttpFetcher, settings: Settings) -> None:
         self._fetcher = fetcher
         self._settings = settings
+        self._headers = {
+            "x-rapidapi-host": settings.linkedin_rapidapi_host,
+            "x-rapidapi-key": settings.linkedin_rapidapi_key,
+        }
 
     @property
     def name(self) -> str:
@@ -59,127 +44,131 @@ class LinkedInAdapter:
         return self._settings.linkedin_poll_interval_seconds
 
     async def fetch_raw(self) -> list[dict[str, Any]]:
-        """Scrape LinkedIn job search results with anti-bot delays."""
-        all_listings: list[dict[str, Any]] = []
+        """Fetch jobs and posts from LinkedIn via RapidAPI."""
+        all_items: list[dict[str, Any]] = []
 
-        for query in self._settings.linkedin_search_queries:
-            url = f"{_BASE_URL}?keywords={query}&f_TPR=r86400"  # last 24h filter
-            log = logger.bind(adapter=self.name, query=query)
-
+        # Job search
+        for query in self._settings.linkedin_job_queries:
             try:
-                html = await self._fetcher.fetch_html(
-                    url, wait_for_selector=_WAIT_SELECTOR
+                resp = await self._fetcher.get_json(
+                    f"{_BASE_URL}/search-jobs",
+                    params={"query": query, "page": "1"},
+                    headers=self._headers,
+                )
+                jobs = resp.data.get("data", [])
+                if isinstance(jobs, list):
+                    for job in jobs:
+                        job["_type"] = "job"
+                        job["_query"] = query
+                    all_items.extend(jobs)
+                logger.debug(
+                    "linkedin_jobs_fetched",
+                    query=query, count=len(jobs),
+                )
+            except Exception:
+                logger.warning(
+                    "linkedin_job_search_failed",
+                    query=query, exc_info=True,
                 )
 
-                # Check for auth wall
-                if _is_auth_wall(html):
-                    log.warning("linkedin_auth_wall_detected")
-                    continue
-
-                listings = _parse_listings(html)
-                all_listings.extend(listings)
-                log.debug("linkedin_fetched", listings=len(listings))
-
+        # Post search
+        for query in self._settings.linkedin_post_queries:
+            try:
+                resp = await self._fetcher.get_json(
+                    f"{_BASE_URL}/search-posts",
+                    params={"query": query, "page": "1"},
+                    headers=self._headers,
+                )
+                posts = resp.data.get("data", [])
+                if isinstance(posts, list):
+                    for post in posts:
+                        post["_type"] = "post"
+                        post["_query"] = query
+                    all_items.extend(posts)
+                logger.debug(
+                    "linkedin_posts_fetched",
+                    query=query, count=len(posts),
+                )
             except Exception:
-                log.warning("linkedin_fetch_failed", exc_info=True)
+                logger.warning(
+                    "linkedin_post_search_failed",
+                    query=query, exc_info=True,
+                )
 
-            # Anti-bot: random delay between queries
-            delay = random.uniform(
-                self._settings.linkedin_min_delay_sec,
-                self._settings.linkedin_max_delay_sec,
-            )
-            await asyncio.sleep(delay)
-
-        return all_listings
+        return all_items
 
     def normalize(self, raw: dict[str, Any]) -> CanonicalLead | None:
-        """Convert a parsed LinkedIn listing to a CanonicalLead.
+        """Convert a LinkedIn API result to a CanonicalLead.
 
         Pure function — no I/O.
         """
-        title = raw.get("title", "")
-        company = raw.get("company", "")
+        item_type = raw.get("_type", "job")
+        if item_type == "post":
+            return self._normalize_post(raw)
+        return self._normalize_job(raw)
+
+    def _normalize_job(self, raw: dict[str, Any]) -> CanonicalLead | None:
+        """Normalize a job search result."""
+        title = raw.get("job_title", "") or raw.get("title", "")
         if not title:
             return None
 
+        company = raw.get("company_name", "") or raw.get("company", "")
+        location = raw.get("location", "")
+        url = raw.get("job_url", "") or raw.get("url", "") or ""
+
         combined = f"{title} {company} {raw.get('description', '')}"
-        posted_at = _parse_relative_time(raw.get("posted_time", ""))
 
         return CanonicalLead(
             source="linkedin",
-            source_id=raw.get("url", title),
-            url=raw.get("url", ""),
+            source_id=raw.get("job_id", "") or url,
+            url=url,
             title=f"{company} — {title}" if company else title,
             body=raw.get("description", "")[:5000],
             raw_payload=raw,
             signal_type=SignalType.HIRING,
-            signal_strength=80,  # LinkedIn jobs are high-quality signals
+            signal_strength=80,
             company_name=company or None,
-            location=raw.get("location"),
+            location=location or None,
             stack_mentions=extract_stack(combined),
-            posted_at=posted_at,
+            posted_at=_parse_date(raw.get("posted_date")),
+        )
+
+    def _normalize_post(self, raw: dict[str, Any]) -> CanonicalLead | None:
+        """Normalize a post search result."""
+        text = raw.get("text", "") or raw.get("content", "")
+        if not text:
+            return None
+
+        signal_type, signal_strength = classify_signal(text)
+        if signal_type is None:
+            return None
+
+        author = raw.get("author_name", "") or raw.get("author", "")
+        url = raw.get("post_url", "") or raw.get("url", "") or ""
+
+        return CanonicalLead(
+            source="linkedin",
+            source_id=raw.get("post_id", "") or url,
+            url=url,
+            title=text[:120],
+            body=text[:5000],
+            raw_payload=raw,
+            signal_type=signal_type,
+            signal_strength=signal_strength,
+            person_name=author or None,
+            stack_mentions=extract_stack(text),
+            posted_at=_parse_date(raw.get("posted_date")),
         )
 
 
-def _is_auth_wall(html: str) -> bool:
-    """Detect if LinkedIn returned an auth wall instead of results."""
-    lower = html.lower()
-    return any(indicator in lower for indicator in _AUTH_WALL_INDICATORS)
-
-
-def _parse_listings(html: str) -> list[dict[str, Any]]:
-    """Extract job card data from LinkedIn search results HTML."""
-    soup = BeautifulSoup(html, "html.parser")
-    listings: list[dict[str, Any]] = []
-
-    cards = soup.select(".job-search-card, .base-card, [data-entity-urn*='jobPosting']")
-    if not cards:
-        cards = soup.select("li[class*='job']")
-
-    for card in cards:
-        title_el = card.select_one(".base-search-card__title, h3, [class*='title']")
-        company_el = card.select_one(".base-search-card__subtitle, h4, [class*='company']")
-        location_el = card.select_one(".job-search-card__location, [class*='location']")
-        time_el = card.select_one("time, [class*='date'], [class*='posted']")
-        link_el = card.select_one("a[href*='/jobs/'], a[href*='linkedin.com']")
-
-        title = title_el.get_text(strip=True) if title_el else ""
-        company = company_el.get_text(strip=True) if company_el else ""
-        location = location_el.get_text(strip=True) if location_el else ""
-        posted_time = ""
-        if time_el:
-            posted_time = time_el.get("datetime", "") or time_el.get_text(strip=True)
-
-        url = ""
-        if link_el and link_el.get("href"):
-            href = link_el["href"]
-            url = href if href.startswith("http") else f"https://www.linkedin.com{href}"
-
-        description = card.get_text(separator=" ", strip=True)
-
-        if title:
-            listings.append({
-                "title": title,
-                "company": company,
-                "location": location,
-                "posted_time": posted_time,
-                "url": url,
-                "description": description,
-            })
-
-    return listings
-
-
-def _parse_relative_time(text: str) -> datetime | None:
-    """Convert '2 hours ago' style strings to a datetime."""
-    if not text:
+def _parse_date(date_val: str | None) -> datetime | None:
+    """Parse date from LinkedIn API — could be ISO string or relative."""
+    if not date_val:
         return None
-    match = _RELATIVE_TIME.search(text)
-    if not match:
+    try:
+        return datetime.fromisoformat(
+            date_val.replace("Z", "+00:00")
+        )
+    except (ValueError, AttributeError):
         return None
-    amount = int(match.group(1))
-    unit = match.group(2).lower()
-    seconds = amount * _TIME_MULTIPLIERS.get(unit, 0)
-    if not seconds:
-        return None
-    return datetime.now(UTC) - timedelta(seconds=seconds)

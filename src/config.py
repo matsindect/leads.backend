@@ -93,13 +93,21 @@ class Settings(BaseSettings):
     google_cse_poll_interval_seconds: int = Field(default=21600)
     google_cse_daily_query_budget: int = Field(default=100)
 
-    # --- LinkedIn adapter (requires browser fetcher) ---
-    linkedin_poll_interval_seconds: int = Field(default=14400)
-    linkedin_search_queries: list[str] = Field(
-        default=["python developer startup", "fastapi engineer"],
+    # --- LinkedIn adapter (RapidAPI) ---
+    linkedin_rapidapi_key: str = Field(
+        default="",
+        description="RapidAPI key for Fresh LinkedIn Profile Data. Empty = disabled.",
     )
-    linkedin_min_delay_sec: float = Field(default=2.0)
-    linkedin_max_delay_sec: float = Field(default=5.0)
+    linkedin_rapidapi_host: str = Field(
+        default="fresh-linkedin-profile-data.p.rapidapi.com",
+    )
+    linkedin_job_queries: list[str] = Field(
+        default=["python developer", "fastapi engineer", "react developer"],
+    )
+    linkedin_post_queries: list[str] = Field(
+        default=["hiring developer", "looking for engineer", "need a CTO"],
+    )
+    linkedin_poll_interval_seconds: int = Field(default=14400)
 
     # --- Funding sources ---
     funding_feed_urls: list[str] = Field(

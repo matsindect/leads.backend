@@ -90,12 +90,12 @@ def _wellfound_factory(
 
 
 def _linkedin_factory(
-    *, browser_fetcher: BrowserFetcher | None, settings: Settings, **_: Any,
+    *, default_fetcher: HttpFetcher, settings: Settings, **_: Any,
 ) -> SourceAdapter | None:
-    if browser_fetcher is None:
-        return None  # requires Playwright
+    if not settings.linkedin_rapidapi_key:
+        return None  # disabled when no RapidAPI key
     from modules.scraping.adapters.linkedin import LinkedInAdapter
-    return LinkedInAdapter(fetcher=browser_fetcher, settings=settings)
+    return LinkedInAdapter(fetcher=default_fetcher, settings=settings)
 
 
 ADAPTER_FACTORIES: dict[str, AdapterFactory] = {
