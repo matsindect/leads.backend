@@ -104,12 +104,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     """Build and return the FastAPI application."""
+    from fastapi.middleware.cors import CORSMiddleware
+
     app = FastAPI(
         title="Lead Pipeline",
         description="Modular monolith: scraping + enrichment in one service.",
-        version="0.2.0",
+        version="0.2.1",
         lifespan=lifespan,
     )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # TODO: restrict to your frontend domain in production
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     app.include_router(router, prefix="/api/v1")
 
     # SIGTERM handler for graceful shutdown in containers
