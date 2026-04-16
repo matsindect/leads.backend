@@ -558,6 +558,159 @@ class PostgresLeadRepository:
             return [dict(row._mapping) for row in result.fetchall()]
 
 
+    async def query_leads(
+        self,
+        *,
+        source: str | None = None,
+        signal_type: str | None = None,
+        status: str | None = None,
+        search: str | None = None,
+        sort_by: str = "fetched_at",
+        sort_order: str = "desc",
+        offset: int = 0,
+        limit: int = 50,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Query leads with filtering, sorting, and pagination.
+
+        Returns (rows, total_count).
+        """
+        async with self._session_factory() as session:
+            query = sa.select(raw_leads_table)
+            count_query = sa.select(sa.func.count()).select_from(raw_leads_table)
+
+            # Filters
+            conditions = []
+            if source:
+                conditions.append(raw_leads_table.c.source == source)
+            if signal_type:
+                conditions.append(raw_leads_table.c.signal_type == signal_type)
+            if status:
+                conditions.append(raw_leads_table.c.status == status)
+            if search:
+                pattern = f"%{search}%"
+                conditions.append(
+                    sa.or_(
+                        raw_leads_table.c.title.ilike(pattern),
+                        raw_leads_table.c.body.ilike(pattern),
+                        raw_leads_table.c.company_name.ilike(pattern),
+                        raw_leads_table.c.company_domain.ilike(pattern),
+                        raw_leads_table.c.person_name.ilike(pattern),
+                    )
+                )
+
+            if conditions:
+                query = query.where(sa.and_(*conditions))
+                count_query = count_query.where(sa.and_(*conditions))
+
+            # Total count
+            total = int((await session.execute(count_query)).scalar_one())
+
+            # Sort
+            sort_col = getattr(raw_leads_table.c, sort_by, raw_leads_table.c.fetched_at)
+            order = sort_col.desc() if sort_order == "desc" else sort_col.asc()
+            query = query.order_by(order).offset(offset).limit(limit)
+
+            result = await session.execute(query)
+            rows = [dict(row._mapping) for row in result.fetchall()]
+
+        return rows, total
+
+    async def get_lead_detail(self, lead_id: uuid.UUID) -> dict[str, Any] | None:
+        """Fetch a single lead with enrichment data joined."""
+        async with self._session_factory() as session:
+            # Base lead
+            result = await session.execute(
+                sa.select(raw_leads_table).where(raw_leads_table.c.id == lead_id)
+            )
+            row = result.fetchone()
+            if row is None:
+                return None
+
+            lead = dict(row._mapping)
+
+            # Join enrichment if exists
+            enrich_result = await session.execute(
+                sa.select(lead_enrichments_table).where(
+                    lead_enrichments_table.c.lead_id == lead_id
+                )
+            )
+            enrich_row = enrich_result.fetchone()
+            if enrich_row:
+                lead["enrichment"] = dict(enrich_row._mapping)
+
+            return lead
+
+    async def get_lead_stats(self) -> dict[str, Any]:
+        """Aggregate stats for the dashboard."""
+        async with self._session_factory() as session:
+            # Total leads
+            total = int(
+                (await session.execute(
+                    sa.select(sa.func.count()).select_from(raw_leads_table)
+                )).scalar_one()
+            )
+
+            # Per source
+            source_result = await session.execute(
+                sa.select(
+                    raw_leads_table.c.source,
+                    sa.func.count().label("count"),
+                )
+                .group_by(raw_leads_table.c.source)
+                .order_by(sa.text("count DESC"))
+            )
+            by_source = [
+                {"source": r.source, "count": r.count}
+                for r in source_result.fetchall()
+            ]
+
+            # Per signal type
+            signal_result = await session.execute(
+                sa.select(
+                    raw_leads_table.c.signal_type,
+                    sa.func.count().label("count"),
+                )
+                .where(raw_leads_table.c.signal_type.is_not(None))
+                .group_by(raw_leads_table.c.signal_type)
+                .order_by(sa.text("count DESC"))
+            )
+            by_signal = [
+                {"signal_type": r.signal_type, "count": r.count}
+                for r in signal_result.fetchall()
+            ]
+
+            # Per status
+            status_result = await session.execute(
+                sa.select(
+                    raw_leads_table.c.status,
+                    sa.func.count().label("count"),
+                )
+                .group_by(raw_leads_table.c.status)
+            )
+            by_status = [
+                {"status": r.status, "count": r.count}
+                for r in status_result.fetchall()
+            ]
+
+            # Recent 24h
+            cutoff = datetime.now(UTC) - timedelta(hours=24)
+            recent = int(
+                (await session.execute(
+                    sa.select(sa.func.count())
+                    .select_from(raw_leads_table)
+                    .where(raw_leads_table.c.fetched_at >= cutoff)
+                )).scalar_one()
+            )
+
+        return {
+            "total_leads": total,
+            "leads_last_24h": recent,
+            "by_source": by_source,
+            "by_signal_type": by_signal,
+            "by_status": by_status,
+        }
+
+
 def _json_safe(value: Any) -> Any:
     """Recursively convert datetimes to ISO strings so JSONB serialization works.
 

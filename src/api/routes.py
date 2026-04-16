@@ -6,6 +6,8 @@ translation layers between HTTP and domain objects.
 
 from __future__ import annotations
 
+from datetime import datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -223,6 +225,93 @@ async def llm_cost_stats(
             for row in aggregation
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Leads read API (for frontend consumption)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/leads")
+async def list_leads(
+    repository: EnrichmentRepoDep,
+    source: str | None = None,
+    signal_type: str | None = None,
+    status: str | None = None,
+    search: str | None = None,
+    sort_by: str = "fetched_at",
+    sort_order: str = "desc",
+    page: int = 1,
+    page_size: int = 50,
+) -> dict[str, Any]:
+    """List leads with filtering, sorting, and pagination.
+
+    Query params:
+    - source: filter by source (reddit, hackernews, etc.)
+    - signal_type: filter by signal (hiring, pain_point, etc.)
+    - status: filter by status (new, scored, etc.)
+    - search: text search across title, body, company, person
+    - sort_by: field to sort (fetched_at, score, signal_strength, posted_at)
+    - sort_order: asc or desc
+    - page: page number (1-based)
+    - page_size: items per page (max 100)
+    """
+    page_size = min(page_size, 100)
+    offset = (max(page, 1) - 1) * page_size
+
+    rows, total = await repository.query_leads(
+        source=source,
+        signal_type=signal_type,
+        status=status,
+        search=search,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        offset=offset,
+        limit=page_size,
+    )
+
+    return {
+        "leads": [_serialize_lead(r) for r in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size if total else 0,
+    }
+
+
+@router.get("/leads/stats")
+async def lead_stats(
+    repository: EnrichmentRepoDep,
+) -> dict[str, Any]:
+    """Dashboard stats: totals, per-source, per-signal, per-status."""
+    return await repository.get_lead_stats()
+
+
+@router.get("/leads/{lead_id}")
+async def get_lead(
+    lead_id: UUID,
+    repository: EnrichmentRepoDep,
+) -> dict[str, Any]:
+    """Get a single lead with enrichment data."""
+    lead = await repository.get_lead_detail(lead_id)
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return _serialize_lead(lead)
+
+
+def _serialize_lead(row: dict[str, Any]) -> dict[str, Any]:
+    """Convert a DB row to a JSON-safe dict for the API response."""
+    result: dict[str, Any] = {}
+    for key, val in row.items():
+        if isinstance(val, datetime):
+            result[key] = val.isoformat()
+        elif isinstance(val, UUID):
+            result[key] = str(val)
+        elif isinstance(val, Decimal):
+            result[key] = float(val)
+        else:
+            result[key] = val
+    return result
 
 
 @router.get("/health/enrichment")
