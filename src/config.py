@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     # --- HackerNews adapter ---
     hn_poll_interval_seconds: int = Field(default=600)
 
+    # --- HN "Who is Hiring?" adapter (monthly thread) ---
+    hnhiring_poll_interval_seconds: int = Field(default=21600)
+
     # --- Wellfound adapter (requires browser fetcher) ---
     wellfound_poll_interval_seconds: int = Field(default=3600)
     wellfound_search_roles: list[str] = Field(

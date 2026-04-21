@@ -8,11 +8,13 @@ import httpx
 import pytest
 import respx
 
+from api.schemas import ScrapeRequest
 from config import Settings
 from domain.models import SignalType
 from infrastructure.fetchers.http import HttpFetcher
 from infrastructure.fetchers.rss import RssFetcher
 from modules.scraping.adapters.rss_multi import RssMultiAdapter
+from modules.scraping.signals import DEFAULT_CLASSIFIER
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -34,7 +36,7 @@ class TestRssMultiNormalize:
             "summary": "Join our team at acme.io",
             "published_at": None, "author": "poster",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.signal_type == SignalType.HIRING
         assert lead.source == "rss"
@@ -46,7 +48,7 @@ class TestRssMultiNormalize:
             "summary": "This week in tech news.",
             "published_at": None, "author": None,
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.signal_type == SignalType.GENERAL_INTEREST
         assert lead.signal_strength == 20
@@ -58,10 +60,10 @@ class TestRssMultiNormalize:
             "summary": "Our team at devco.io switched to docker and kubernetes.",
             "published_at": None, "author": None,
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
-        assert "docker" in lead.stack_mentions
-        assert "kubernetes" in lead.stack_mentions
+        assert "docker" in lead.keywords
+        assert "kubernetes" in lead.keywords
         assert lead.company_domain == "devco.io"
 
 
@@ -80,6 +82,6 @@ class TestRssMultiFetchRaw:
         respx.get("https://a.com/feed").respond(200, text=xml)
         respx.get("https://b.com/feed").respond(200, text=xml)
 
-        entries = await adapter.fetch_raw()
+        entries = await adapter.fetch_raw(ScrapeRequest())
         # sample_rss.xml has 3 entries × 2 feeds
         assert len(entries) == 6

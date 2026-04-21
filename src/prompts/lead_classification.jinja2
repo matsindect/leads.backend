@@ -1,7 +1,7 @@
 {# Lead Classification Prompt
    Inputs: title (str), body (str), source (str), signal_type (str),
            company_name (str | None), company_domain (str | None),
-           company_enrichment (dict | None), stack_mentions (list[str]),
+           company_enrichment (dict | None), keywords (list[str]),
            user_skills (list[str])
    Expected output: JSON matching the EnrichmentResult schema
    Model tier: SMART — nuanced classification requiring judgment
@@ -21,7 +21,7 @@ Body:
 Company info: homepage="{{ company_enrichment.get('homepage_title', 'unknown') }}", reachable={{ company_enrichment.get('is_reachable', 'unknown') }}
 {% endif %}
 Initial signal type: {{ signal_type }}
-Stack mentions: {{ stack_mentions | join(', ') or 'none detected' }}
+Stack mentions: {{ keywords | join(', ') or 'none detected' }}
 Evaluator skills: {{ user_skills | join(', ') }}
 
 ## Instructions

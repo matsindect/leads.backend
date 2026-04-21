@@ -87,7 +87,7 @@ async def _insert_fake_lead(
         await session.execute(
             text("""
                 INSERT INTO raw_leads (id, source, source_id, dedup_hash, url, title, body,
-                    raw_payload, signal_type, signal_strength, status, stack_mentions,
+                    raw_payload, signal_type, signal_strength, status, keywords,
                     company_domain, person_name, posted_at)
                 VALUES (:id, 'test', :sid, :hash, 'https://example.com', 'Hiring Python devs',
                     'Looking for engineers at acme.io', '{}', 'hiring', 60, 'new',

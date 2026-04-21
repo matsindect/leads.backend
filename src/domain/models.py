@@ -48,7 +48,7 @@ class CanonicalLead:
     person_name: str | None = None
     person_role: str | None = None
     location: str | None = None
-    stack_mentions: list[str] = field(default_factory=list)
+    keywords: list[str] = field(default_factory=list)
     posted_at: datetime | None = None
 
 

@@ -8,11 +8,13 @@ import httpx
 import pytest
 import respx
 
+from api.schemas import ScrapeRequest
 from config import Settings
 from domain.models import SignalType
 from infrastructure.fetchers.http import HttpFetcher
 from infrastructure.fetchers.rss import RssFetcher
 from modules.scraping.adapters.funding import FundingAdapter
+from modules.scraping.signals import DEFAULT_CLASSIFIER
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -33,7 +35,7 @@ class TestFundingNormalize:
             "link": "https://tc.com/1", "summary": "Startup at acme.ai raised funds.",
             "published_at": None, "author": None,
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.signal_type == SignalType.FUNDING
         assert lead.signal_strength == 90
@@ -45,7 +47,7 @@ class TestFundingNormalize:
             "link": "https://tc.com/2", "summary": "DevStack from devstack.io builds K8s tooling.",
             "published_at": None, "author": None,
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.signal_strength == 80
         assert lead.company_name == "DevStack"
@@ -56,7 +58,7 @@ class TestFundingNormalize:
             "link": "https://tc.com/3", "summary": "Fashion startup acquired.",
             "published_at": None, "author": None,
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.signal_strength == 70
 
@@ -66,21 +68,21 @@ class TestFundingNormalize:
             "link": "https://tc.com/4", "summary": "The team at newco.io is expanding.",
             "published_at": None, "author": None,
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.company_domain == "newco.io"
 
-    def test_stack_mentions_extracted(self, adapter: FundingAdapter) -> None:
+    def test_keywords_extracted(self, adapter: FundingAdapter) -> None:
         raw = {
             "id": "5", "title": "DevStack secures seed",
             "link": "https://tc.com/5",
             "summary": "They use Go and Terraform and kubernetes.",
             "published_at": None, "author": None,
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
-        assert "kubernetes" in lead.stack_mentions
-        assert "terraform" in lead.stack_mentions
+        assert "kubernetes" in lead.keywords
+        assert "terraform" in lead.keywords
 
 
 class TestFundingFetchRaw:
@@ -97,5 +99,5 @@ class TestFundingFetchRaw:
         xml = (FIXTURES / "sample_funding_rss.xml").read_text()
         respx.get("https://tc.com/feed").respond(200, text=xml)
 
-        entries = await adapter.fetch_raw()
+        entries = await adapter.fetch_raw(ScrapeRequest())
         assert len(entries) == 3

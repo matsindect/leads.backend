@@ -24,6 +24,7 @@ from api.dependencies import (
     RepositoryDep,
     SettingsDep,
 )
+from api.schemas import AdapterParamSchema, ScrapeRequest
 from domain.events import LeadCreated
 from domain.models import AlreadyProcessedError
 from modules.enrichment.stages.classify import BudgetExceededError
@@ -43,8 +44,13 @@ async def trigger_scrape(
     adapter_name: str,
     orchestrator: OrchestratorDep,
     adapters: AdaptersDep,
+    request: ScrapeRequest | None = None,
 ) -> dict[str, Any]:
-    """Trigger a single scrape pass for one adapter. Idempotent."""
+    """Trigger a single scrape pass for one adapter. Idempotent.
+
+    Body is optional — an empty body uses env-configured defaults.
+    Any field in ``ScrapeRequest`` overrides the corresponding env setting.
+    """
     adapter = adapters.get(adapter_name)
     if adapter is None:
         raise HTTPException(
@@ -52,7 +58,7 @@ async def trigger_scrape(
             detail=f"Unknown adapter: {adapter_name}. Available: {list(adapters.keys())}",
         )
 
-    report = await orchestrator.run(adapter)
+    report = await orchestrator.run(adapter, request or ScrapeRequest())
 
     return {
         "adapter": report.adapter_name,
@@ -65,6 +71,24 @@ async def trigger_scrape(
         "duration_ms": report.duration_ms,
         "error": report.error,
     }
+
+
+@router.get("/adapters/{adapter_name}/schema")
+async def adapter_schema(
+    adapter_name: str,
+    adapters: AdaptersDep,
+) -> AdapterParamSchema:
+    """Describe which ScrapeRequest fields the named adapter uses.
+
+    Lets n8n workflow authors discover which params to supply.
+    """
+    adapter = adapters.get(adapter_name)
+    if adapter is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown adapter: {adapter_name}. Available: {list(adapters.keys())}",
+        )
+    return adapter.accepted_params
 
 
 @router.get("/adapters")

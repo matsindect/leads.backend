@@ -8,11 +8,13 @@ import httpx
 import pytest
 import respx
 
+from api.schemas import ScrapeRequest
 from config import Settings
 from domain.models import SignalType
 from infrastructure.fetchers.http import HttpFetcher
 from infrastructure.fetchers.rss import RssFetcher
 from modules.scraping.adapters.producthunt import ProductHuntAdapter
+from modules.scraping.signals import DEFAULT_CLASSIFIER
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -35,7 +37,7 @@ class TestProductHuntNormalize:
             "summary": "An alternative to existing review tools. Built with Python.",
             "published_at": None, "author": None,
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.signal_type == SignalType.TOOL_EVALUATION
         assert lead.source == "producthunt"
@@ -47,7 +49,7 @@ class TestProductHuntNormalize:
             "summary": "Scale your postgres database. Growing fast.",
             "published_at": None, "author": None,
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.signal_type == SignalType.EXPANSION
 
@@ -59,7 +61,7 @@ class TestProductHuntNormalize:
             "summary": "Create and manage design systems in Figma.",
             "published_at": None, "author": None,
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.signal_type == SignalType.GENERAL_INTEREST
         assert lead.signal_strength == 40
@@ -70,7 +72,7 @@ class TestProductHuntNormalize:
             "link": "https://producthunt.com/posts/codereview-ai",
             "summary": "", "published_at": None, "author": None,
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.company_name == "CodeReview AI"
 
@@ -81,10 +83,10 @@ class TestProductHuntNormalize:
             "summary": "Built with python and fastapi on kubernetes.",
             "published_at": None, "author": None,
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
-        assert "python" in lead.stack_mentions
-        assert "fastapi" in lead.stack_mentions
+        assert "python" in lead.keywords
+        assert "fastapi" in lead.keywords
 
 
 class TestProductHuntFetchRaw:
@@ -100,5 +102,5 @@ class TestProductHuntFetchRaw:
         xml = (FIXTURES / "sample_producthunt_rss.xml").read_text()
         respx.get("https://www.producthunt.com/feed").respond(200, text=xml)
 
-        entries = await adapter.fetch_raw()
+        entries = await adapter.fetch_raw(ScrapeRequest())
         assert len(entries) == 3

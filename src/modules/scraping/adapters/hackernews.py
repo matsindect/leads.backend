@@ -1,8 +1,7 @@
-"""Hacker News source adapter — fetches from Algolia HN Search API.
+"""HackerNews source adapter — Algolia search.
 
-Uses ``search_by_date`` to find recent stories mentioning hiring,
-developer needs, or tool evaluations.  Applies the shared signal
-classification from ``modules.scraping.signals``.
+Accepts per-request `queries` (joined with OR) and `limit`, falling
+back to a developer-hiring-focused default.
 
 Satisfies ``domain.interfaces.SourceAdapter``.
 """
@@ -14,14 +13,17 @@ from typing import Any
 
 import structlog
 
+from api.schemas import AdapterParamSchema, ScrapeRequest
 from config import Settings
 from domain.models import CanonicalLead
 from infrastructure.fetchers.http import HttpFetcher
-from modules.scraping.signals import classify_signal, extract_domain, extract_stack
+from modules.scraping.signals import SignalClassifier, extract_domain
 
 logger = structlog.get_logger()
 
 _ALGOLIA_URL = "https://hn.algolia.com/api/v1/search_by_date"
+_DEFAULT_QUERY = "looking for developer OR need developer OR hiring developer"
+_DEFAULT_LIMIT = 25
 
 
 class HackerNewsAdapter:
@@ -39,14 +41,27 @@ class HackerNewsAdapter:
     def poll_interval_seconds(self) -> int:
         return self._settings.hn_poll_interval_seconds
 
-    async def fetch_raw(self) -> list[dict[str, Any]]:
-        """Search HN for stories with developer/hiring signals."""
+    @property
+    def accepted_params(self) -> AdapterParamSchema:
+        return AdapterParamSchema(
+            name=self.name,
+            uses_queries=True,
+            uses_limit=True,
+            default_queries=[_DEFAULT_QUERY],
+            default_limit=_DEFAULT_LIMIT,
+            notes="queries are joined with OR into a single Algolia query. limit = hitsPerPage.",
+        )
+
+    async def fetch_raw(self, params: ScrapeRequest) -> list[dict[str, Any]]:
+        query = " OR ".join(params.queries) if params.queries else _DEFAULT_QUERY
+        limit = params.limit or _DEFAULT_LIMIT
+
         response = await self._fetcher.get_json(
             _ALGOLIA_URL,
             params={
-                "query": "looking for developer OR need developer OR hiring developer",
+                "query": query,
                 "tags": "story",
-                "hitsPerPage": "25",
+                "hitsPerPage": str(limit),
             },
         )
 
@@ -54,20 +69,18 @@ class HackerNewsAdapter:
         logger.debug("hn_fetched", count=len(hits))
         return hits
 
-    def normalize(self, raw: dict[str, Any]) -> CanonicalLead | None:
-        """Convert a raw HN item into a CanonicalLead.
-
-        Pure function — no I/O.  Returns None if no signal matches.
-        """
+    def normalize(
+        self, raw: dict[str, Any], classifier: SignalClassifier
+    ) -> CanonicalLead | None:
         title = raw.get("title", "") or ""
         body = raw.get("story_text", "") or raw.get("comment_text", "") or ""
         combined = f"{title} {body}"
 
-        signal_type, signal_strength = classify_signal(combined)
+        signal_type, signal_strength = classifier.classify(combined)
         if signal_type is None:
             return None
 
-        stack_mentions = extract_stack(combined)
+        keywords = classifier.extract_keywords(combined)
         company_domain = extract_domain(combined)
         posted_at = _parse_hn_timestamp(raw.get("created_at"))
 
@@ -85,13 +98,12 @@ class HackerNewsAdapter:
             signal_strength=signal_strength,
             company_domain=company_domain,
             person_name=raw.get("author"),
-            stack_mentions=stack_mentions,
+            keywords=keywords,
             posted_at=posted_at,
         )
 
 
 def _parse_hn_timestamp(iso_str: str | None) -> datetime | None:
-    """Parse HN Algolia ISO timestamp (e.g. '2024-04-07T12:00:00.000Z')."""
     if not iso_str:
         return None
     try:

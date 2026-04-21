@@ -1,7 +1,8 @@
 """RemoteOK source adapter — fetches remote job listings via RSS.
 
-Proves the RssFetcher pattern works end-to-end.  Job board posts are
-a weaker signal than organic founder posts, so signal_strength is capped.
+Filters entries to titles matching ``queries`` when provided; falls back
+to a default dev/engineering keyword filter.  Signal is always HIRING
+(strength 70 — job board is a weaker signal than direct founder posts).
 
 Satisfies ``domain.interfaces.SourceAdapter``.
 """
@@ -13,17 +14,19 @@ from typing import Any
 
 import structlog
 
+from api.schemas import AdapterParamSchema, ScrapeRequest
 from config import Settings
 from domain.models import CanonicalLead, SignalType
 from infrastructure.fetchers.base import RssEntry
 from infrastructure.fetchers.rss import RssFetcher
+from modules.scraping.signals import SignalClassifier
 
 logger = structlog.get_logger()
 
 _FEED_URL = "https://remoteok.com/remote-jobs.rss"
 
-# Only keep entries whose title contains dev/engineering keywords
-_DEV_ROLE_PATTERN = re.compile(
+# Default role filter: only keep dev/engineering-flavored titles
+_DEFAULT_ROLE_PATTERN = re.compile(
     r"\b(developer|engineer|dev|backend|frontend|fullstack|full.stack|"
     r"devops|sre|architect|programmer|software)\b",
     re.IGNORECASE,
@@ -34,7 +37,7 @@ _COMPANY_FROM_TITLE = re.compile(r"^(.+?)\s*[-–—]\s+")
 
 
 class RemoteOKAdapter:
-    """Fetches remote dev job listings from RemoteOK RSS feed."""
+    """Fetches remote job listings from RemoteOK RSS feed."""
 
     def __init__(self, fetcher: RssFetcher, settings: Settings) -> None:
         self._fetcher = fetcher
@@ -48,26 +51,45 @@ class RemoteOKAdapter:
     def poll_interval_seconds(self) -> int:
         return 600
 
-    async def fetch_raw(self) -> list[dict[str, Any]]:
-        """Fetch RSS feed and return raw entry dicts."""
+    @property
+    def accepted_params(self) -> AdapterParamSchema:
+        return AdapterParamSchema(
+            name=self.name,
+            uses_queries=True,
+            default_queries=["developer", "engineer", "devops"],
+            notes=(
+                "queries filter job titles (substring match, any-of). "
+                "When omitted, a dev-role default pattern is used."
+            ),
+        )
+
+    async def fetch_raw(self, params: ScrapeRequest) -> list[dict[str, Any]]:
         feed = await self._fetcher.fetch(_FEED_URL)
         logger.debug("remoteok_fetched", entries=len(feed.entries))
-        # Convert RssEntry to dict for the SourceAdapter interface
-        return [_entry_to_dict(e) for e in feed.entries]
+        entries = [_entry_to_dict(e) for e in feed.entries]
+        # Stash the active queries on each entry so normalize() can filter.
+        for entry in entries:
+            entry["_queries"] = list(params.queries) if params.queries else None
+        return entries
 
-    def normalize(self, raw: dict[str, Any]) -> CanonicalLead | None:
-        """Convert an RSS entry to a CanonicalLead.
-
-        Pure function — no I/O.  Filters to dev/engineering roles only.
-        """
+    def normalize(
+        self, raw: dict[str, Any], classifier: SignalClassifier
+    ) -> CanonicalLead | None:
         title = raw.get("title", "")
 
-        # Drop non-dev roles
-        if not _DEV_ROLE_PATTERN.search(title):
+        # Role filter: either request queries (any-of, case-insensitive) or default pattern
+        queries = raw.get("_queries")
+        if queries:
+            lower = title.lower()
+            if not any(q.lower() in lower for q in queries):
+                return None
+        elif not _DEFAULT_ROLE_PATTERN.search(title):
             return None
 
+        summary = raw.get("summary", "")
+        combined = f"{title} {summary}"
+
         company_name = _extract_company(title)
-        # Try to get domain from author email (e.g. jobs@company.com)
         company_domain = _domain_from_author(raw.get("author"))
 
         return CanonicalLead(
@@ -75,13 +97,14 @@ class RemoteOKAdapter:
             source_id=raw.get("id", raw.get("link", "")),
             url=raw.get("link", ""),
             title=title,
-            body=raw.get("summary", "")[:5000],
+            body=summary[:5000],
             raw_payload=raw,
             signal_type=SignalType.HIRING,
-            signal_strength=70,  # job board = weaker signal than direct posts
+            signal_strength=70,
             company_name=company_name,
             company_domain=company_domain,
             person_name=raw.get("author"),
+            keywords=classifier.extract_keywords(combined),
             posted_at=raw.get("published_at"),
         )
 
@@ -103,7 +126,6 @@ def _extract_company(title: str) -> str | None:
 
 
 def _domain_from_author(author: str | None) -> str | None:
-    """Extract domain from email-style author (e.g. 'jobs@acme.io')."""
     if not author or "@" not in author:
         return None
     parts = author.split("@")

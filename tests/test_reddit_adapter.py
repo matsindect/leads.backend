@@ -12,6 +12,7 @@ from domain.models import SignalType
 from infrastructure.fetchers.http import HttpFetcher
 from infrastructure.fetchers.rss import RssFetcher
 from modules.scraping.adapters.reddit import RedditAdapter
+from modules.scraping.signals import DEFAULT_CLASSIFIER
 
 
 @pytest.fixture
@@ -30,29 +31,29 @@ class TestRedditNormalize:
         self, adapter: RedditAdapter, sample_reddit_raw_post: dict
     ) -> None:
         """Post mentioning 'hiring' should be classified as HIRING."""
-        lead = adapter.normalize(sample_reddit_raw_post)
+        lead = adapter.normalize(sample_reddit_raw_post, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.signal_type == SignalType.HIRING
         assert lead.source == "reddit"
         assert lead.source_id == "abc123"
 
-    def test_stack_mentions_extracted(
+    def test_keywords_extracted(
         self, adapter: RedditAdapter, sample_reddit_raw_post: dict
     ) -> None:
         """Technology keywords in text should be captured."""
-        lead = adapter.normalize(sample_reddit_raw_post)
+        lead = adapter.normalize(sample_reddit_raw_post, DEFAULT_CLASSIFIER)
         assert lead is not None
-        assert "fastapi" in lead.stack_mentions
-        assert "postgres" in lead.stack_mentions
-        assert "docker" in lead.stack_mentions
-        assert "kubernetes" in lead.stack_mentions
-        assert "react" in lead.stack_mentions
+        assert "fastapi" in lead.keywords
+        assert "postgres" in lead.keywords
+        assert "docker" in lead.keywords
+        assert "kubernetes" in lead.keywords
+        assert "react" in lead.keywords
 
     def test_company_domain_extracted(
         self, adapter: RedditAdapter, sample_reddit_raw_post: dict
     ) -> None:
         """Domain pattern 'at acme.io' should be captured."""
-        lead = adapter.normalize(sample_reddit_raw_post)
+        lead = adapter.normalize(sample_reddit_raw_post, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.company_domain == "acme.io"
 
@@ -66,14 +67,14 @@ class TestRedditNormalize:
             "author": "/user/tourist",
             "published_at": datetime(2024, 4, 7, tzinfo=UTC),
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is None
 
     def test_url_construction(
         self, adapter: RedditAdapter, sample_reddit_raw_post: dict
     ) -> None:
         """URL is the entry's link."""
-        lead = adapter.normalize(sample_reddit_raw_post)
+        lead = adapter.normalize(sample_reddit_raw_post, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.url == "https://www.reddit.com/r/startups/comments/abc123/were_hiring/"
 
@@ -81,7 +82,7 @@ class TestRedditNormalize:
         self, adapter: RedditAdapter, sample_reddit_raw_post: dict
     ) -> None:
         """published_at should be carried through as timezone-aware datetime."""
-        lead = adapter.normalize(sample_reddit_raw_post)
+        lead = adapter.normalize(sample_reddit_raw_post, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.posted_at is not None
         assert lead.posted_at.tzinfo is not None
@@ -90,7 +91,7 @@ class TestRedditNormalize:
         self, adapter: RedditAdapter, sample_reddit_raw_post: dict
     ) -> None:
         """Author '/user/name' format should be normalized to just 'name'."""
-        lead = adapter.normalize(sample_reddit_raw_post)
+        lead = adapter.normalize(sample_reddit_raw_post, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.person_name == "startup_founder"
 
@@ -98,7 +99,7 @@ class TestRedditNormalize:
         self, adapter: RedditAdapter, sample_reddit_raw_post: dict
     ) -> None:
         """RSS summary HTML tags should be stripped from body."""
-        lead = adapter.normalize(sample_reddit_raw_post)
+        lead = adapter.normalize(sample_reddit_raw_post, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert "<p>" not in lead.body
         assert "</p>" not in lead.body
@@ -113,7 +114,7 @@ class TestRedditNormalize:
             "author": "/user/dev",
             "published_at": datetime(2024, 4, 7, tzinfo=UTC),
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert len(lead.body) <= 5000
 
@@ -127,6 +128,6 @@ class TestRedditNormalize:
             "author": "/user/devops_eng",
             "published_at": datetime(2024, 4, 7, tzinfo=UTC),
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.signal_type == SignalType.PAIN_POINT

@@ -37,15 +37,32 @@ class SourceAdapter(Protocol):
         """Suggested interval between automatic scrape passes."""
         ...
 
-    async def fetch_raw(self) -> list[dict]:
+    @property
+    def accepted_params(self) -> Any:
+        """``AdapterParamSchema`` describing which ScrapeRequest fields the adapter uses.
+
+        Consumed by GET /adapters/{name}/schema so n8n workflow builders
+        can discover which params to supply.
+        """
+        ...
+
+    async def fetch_raw(self, params: Any) -> list[dict]:
         """Pull raw records from the external source.
 
+        *params* is a ``ScrapeRequest`` — adapters read fields that apply
+        and fall back to env settings for anything not supplied.
         May raise on transient failures — the orchestrator handles retries.
         """
         ...
 
-    def normalize(self, raw: dict) -> CanonicalLead | None:
+    def normalize(
+        self, raw: dict, classifier: Any
+    ) -> CanonicalLead | None:
         """Convert one raw record into a CanonicalLead.
+
+        *classifier* is a ``SignalClassifier`` built from the request
+        (or the default dev-focused one).  Adapters call
+        ``classifier.classify(text)`` and ``classifier.extract_keywords(text)``.
 
         Returns None if the record should be dropped (e.g. no signal match).
         Must be a pure function — no I/O, no side effects.
