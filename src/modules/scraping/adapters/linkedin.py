@@ -1,8 +1,8 @@
-"""LinkedIn adapter — fetches jobs and posts via RapidAPI.
+"""LinkedIn adapter — fetches jobs and posts via Fresh LinkedIn Profile Data (RapidAPI).
 
-Uses the Fresh LinkedIn Profile Data API to search for job postings
-and organic LinkedIn posts.  No browser/Playwright needed — pure
-HTTP API calls via HttpFetcher.
+Uses two POST endpoints:
+    POST /search-jobs   body: {"keywords": "...", "page": 1}
+    POST /search-posts  body: {"search_keywords": "...", "sort_by": "Latest", ...}
 
 Satisfies ``domain.interfaces.SourceAdapter``.
 """
@@ -47,15 +47,15 @@ class LinkedInAdapter:
         """Fetch jobs and posts from LinkedIn via RapidAPI."""
         all_items: list[dict[str, Any]] = []
 
-        # Job search
+        # Job search — POST {"keywords": "...", "page": 1}
         for query in self._settings.linkedin_job_queries:
             try:
-                resp = await self._fetcher.get_json(
+                resp = await self._fetcher.post_json(
                     f"{_BASE_URL}/search-jobs",
-                    params={"query": query, "page": "1"},
+                    json_body={"keywords": query, "page": 1},
                     headers=self._headers,
                 )
-                jobs = resp.data.get("data", [])
+                jobs = resp.data.get("data") or []
                 if isinstance(jobs, list):
                     for job in jobs:
                         job["_type"] = "job"
@@ -71,15 +71,28 @@ class LinkedInAdapter:
                     query=query, exc_info=True,
                 )
 
-        # Post search
+        # Post search — POST with richer payload
         for query in self._settings.linkedin_post_queries:
             try:
-                resp = await self._fetcher.get_json(
+                resp = await self._fetcher.post_json(
                     f"{_BASE_URL}/search-posts",
-                    params={"query": query, "page": "1"},
+                    json_body={
+                        "search_keywords": query,
+                        "sort_by": "Latest",
+                        "date_posted": "",
+                        "content_type": "",
+                        "from_member": [],
+                        "from_company": [],
+                        "mentioning_member": [],
+                        "mentioning_company": [],
+                        "author_company": [],
+                        "author_industry": [],
+                        "author_keyword": "",
+                        "page": 1,
+                    },
                     headers=self._headers,
                 )
-                posts = resp.data.get("data", [])
+                posts = resp.data.get("data") or []
                 if isinstance(posts, list):
                     for post in posts:
                         post["_type"] = "post"
@@ -108,35 +121,48 @@ class LinkedInAdapter:
         return self._normalize_job(raw)
 
     def _normalize_job(self, raw: dict[str, Any]) -> CanonicalLead | None:
-        """Normalize a job search result."""
-        title = raw.get("job_title", "") or raw.get("title", "")
+        """Normalize a /search-jobs result."""
+        title = (
+            raw.get("job_title")
+            or raw.get("title")
+            or raw.get("position")
+            or ""
+        )
         if not title:
             return None
 
-        company = raw.get("company_name", "") or raw.get("company", "")
-        location = raw.get("location", "")
-        url = raw.get("job_url", "") or raw.get("url", "") or ""
+        company = raw.get("company") or raw.get("company_name") or ""
+        location = raw.get("location") or raw.get("job_location") or ""
+        url = (
+            raw.get("job_url")
+            or raw.get("url")
+            or raw.get("apply_url")
+            or ""
+        )
+        description = raw.get("description") or raw.get("job_description") or ""
 
-        combined = f"{title} {company} {raw.get('description', '')}"
+        combined = f"{title} {company} {description}"
 
         return CanonicalLead(
             source="linkedin",
-            source_id=raw.get("job_id", "") or url,
+            source_id=str(raw.get("job_id") or raw.get("id") or url),
             url=url,
             title=f"{company} — {title}" if company else title,
-            body=raw.get("description", "")[:5000],
+            body=description[:5000],
             raw_payload=raw,
             signal_type=SignalType.HIRING,
             signal_strength=80,
             company_name=company or None,
             location=location or None,
             stack_mentions=extract_stack(combined),
-            posted_at=_parse_date(raw.get("posted_date")),
+            posted_at=_parse_date(
+                raw.get("posted_date") or raw.get("posted_at") or raw.get("posted")
+            ),
         )
 
     def _normalize_post(self, raw: dict[str, Any]) -> CanonicalLead | None:
-        """Normalize a post search result."""
-        text = raw.get("text", "") or raw.get("content", "")
+        """Normalize a /search-posts result."""
+        text = raw.get("text") or raw.get("content") or ""
         if not text:
             return None
 
@@ -144,12 +170,13 @@ class LinkedInAdapter:
         if signal_type is None:
             return None
 
-        author = raw.get("author_name", "") or raw.get("author", "")
-        url = raw.get("post_url", "") or raw.get("url", "") or ""
+        author = raw.get("poster_name") or raw.get("author_name") or ""
+        author_title = raw.get("poster_title") or ""
+        url = raw.get("post_url") or raw.get("url") or ""
 
         return CanonicalLead(
             source="linkedin",
-            source_id=raw.get("post_id", "") or url,
+            source_id=str(raw.get("post_id") or url),
             url=url,
             title=text[:120],
             body=text[:5000],
@@ -157,18 +184,27 @@ class LinkedInAdapter:
             signal_type=signal_type,
             signal_strength=signal_strength,
             person_name=author or None,
+            person_role=author_title or None,
             stack_mentions=extract_stack(text),
-            posted_at=_parse_date(raw.get("posted_date")),
+            posted_at=_parse_date(raw.get("posted") or raw.get("posted_at")),
         )
 
 
 def _parse_date(date_val: str | None) -> datetime | None:
-    """Parse date from LinkedIn API — could be ISO string or relative."""
+    """Parse date from LinkedIn API — ISO string or 'YYYY-MM-DD HH:MM:SS.fff'."""
     if not date_val:
         return None
+    # Try ISO-with-Z first
     try:
-        return datetime.fromisoformat(
-            date_val.replace("Z", "+00:00")
-        )
+        return datetime.fromisoformat(date_val.replace("Z", "+00:00"))
     except (ValueError, AttributeError):
+        pass
+    # Try LinkedIn's "2026-04-21 06:56:57.000" format
+    try:
+        return datetime.strptime(date_val, "%Y-%m-%d %H:%M:%S.%f")
+    except (ValueError, TypeError):
+        pass
+    try:
+        return datetime.strptime(date_val, "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
         return None
