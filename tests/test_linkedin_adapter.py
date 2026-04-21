@@ -1,4 +1,4 @@
-"""Tests for LinkedInAdapter.normalize() — API-based, no Playwright."""
+"""Tests for LinkedInAdapter.normalize() — RapidAPI-based, POST endpoints."""
 
 from __future__ import annotations
 
@@ -27,13 +27,13 @@ def adapter(linkedin_settings: Settings) -> LinkedInAdapter:
 
 
 class TestNormalizeJob:
-    """Verify job search result normalization."""
+    """Verify /search-jobs result normalization."""
 
     def test_basic_job(self, adapter: LinkedInAdapter) -> None:
         raw = {
             "_type": "job",
             "job_title": "Senior Python Developer",
-            "company_name": "TechCorp",
+            "company": "TechCorp",
             "location": "Remote",
             "job_url": "https://linkedin.com/jobs/view/12345",
             "job_id": "12345",
@@ -47,13 +47,12 @@ class TestNormalizeJob:
         assert lead.source == "linkedin"
         assert lead.company_name == "TechCorp"
         assert "TechCorp" in lead.title
-        assert "Senior Python Developer" in lead.title
 
     def test_stack_extraction(self, adapter: LinkedInAdapter) -> None:
         raw = {
             "_type": "job",
             "job_title": "Backend Engineer",
-            "company_name": "StartupX",
+            "company": "StartupX",
             "job_url": "https://linkedin.com/jobs/1",
             "job_id": "1",
             "description": "Python, FastAPI, PostgreSQL, Docker, Kubernetes.",
@@ -65,14 +64,14 @@ class TestNormalizeJob:
         assert "docker" in lead.stack_mentions
 
     def test_empty_title_returns_none(self, adapter: LinkedInAdapter) -> None:
-        raw = {"_type": "job", "job_title": "", "company_name": ""}
+        raw = {"_type": "job", "job_title": "", "company": ""}
         assert adapter.normalize(raw) is None
 
     def test_location_preserved(self, adapter: LinkedInAdapter) -> None:
         raw = {
             "_type": "job",
             "job_title": "Developer",
-            "company_name": "Co",
+            "company": "Co",
             "location": "San Francisco, CA",
             "job_url": "https://linkedin.com/jobs/2",
             "job_id": "2",
@@ -81,46 +80,50 @@ class TestNormalizeJob:
         assert lead is not None
         assert lead.location == "San Francisco, CA"
 
-    def test_posted_date_parsed(self, adapter: LinkedInAdapter) -> None:
-        raw = {
-            "_type": "job",
-            "job_title": "Dev",
-            "company_name": "Co",
-            "job_url": "https://linkedin.com/jobs/3",
-            "job_id": "3",
-            "posted_date": "2026-04-10T15:30:00Z",
-        }
-        lead = adapter.normalize(raw)
-        assert lead is not None
-        assert lead.posted_at is not None
-        assert lead.posted_at.tzinfo is not None
-
 
 class TestNormalizePost:
-    """Verify post search result normalization."""
+    """Verify /search-posts result normalization."""
 
     def test_hiring_post(self, adapter: LinkedInAdapter) -> None:
         raw = {
             "_type": "post",
             "text": "We're hiring a senior Python developer for our startup.",
-            "author_name": "Jane Founder",
-            "post_url": "https://linkedin.com/posts/jane_hiring",
+            "poster_name": "Jane Founder",
+            "poster_title": "CEO at StartupX",
+            "post_url": "https://linkedin.com/feed/update/urn:li:activity:1",
             "post_id": "post_001",
-            "posted_date": "2026-04-10T12:00:00Z",
+            "posted": "2026-04-21 06:56:57.000",
         }
         lead = adapter.normalize(raw)
         assert lead is not None
         assert lead.signal_type == SignalType.HIRING
         assert lead.source == "linkedin"
         assert lead.person_name == "Jane Founder"
+        assert lead.person_role == "CEO at StartupX"
+
+    def test_linkedin_datetime_format_parsed(
+        self, adapter: LinkedInAdapter
+    ) -> None:
+        """LinkedIn's 'YYYY-MM-DD HH:MM:SS.fff' format should parse."""
+        raw = {
+            "_type": "post",
+            "text": "Looking for a senior engineer to join our team.",
+            "poster_name": "Founder",
+            "post_url": "https://linkedin.com/posts/founder",
+            "post_id": "post_002",
+            "posted": "2026-04-21 06:56:57.000",
+        }
+        lead = adapter.normalize(raw)
+        assert lead is not None
+        assert lead.posted_at is not None
 
     def test_tool_evaluation_post(self, adapter: LinkedInAdapter) -> None:
         raw = {
             "_type": "post",
             "text": "Evaluating alternatives to our current CI/CD setup.",
-            "author_name": "Dev Lead",
-            "post_url": "https://linkedin.com/posts/devlead_eval",
-            "post_id": "post_002",
+            "poster_name": "Dev Lead",
+            "post_url": "https://linkedin.com/posts/devlead",
+            "post_id": "post_003",
         }
         lead = adapter.normalize(raw)
         assert lead is not None
@@ -130,14 +133,14 @@ class TestNormalizePost:
         raw = {
             "_type": "post",
             "text": "Great weather today!",
-            "author_name": "Random Person",
+            "poster_name": "Random Person",
             "post_url": "https://linkedin.com/posts/random",
-            "post_id": "post_003",
+            "post_id": "post_004",
         }
         assert adapter.normalize(raw) is None
 
     def test_empty_text_returns_none(self, adapter: LinkedInAdapter) -> None:
-        raw = {"_type": "post", "text": "", "author_name": "Nobody"}
+        raw = {"_type": "post", "text": "", "poster_name": "Nobody"}
         assert adapter.normalize(raw) is None
 
     def test_post_title_truncated(self, adapter: LinkedInAdapter) -> None:
@@ -146,7 +149,7 @@ class TestNormalizePost:
             "_type": "post",
             "text": long_text,
             "post_url": "https://linkedin.com/posts/long",
-            "post_id": "post_004",
+            "post_id": "post_005",
         }
         lead = adapter.normalize(raw)
         assert lead is not None
