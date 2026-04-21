@@ -14,10 +14,11 @@ from typing import Any
 
 import structlog
 
+from api.schemas import AdapterParamSchema, ScrapeRequest
 from config import Settings
 from domain.models import CanonicalLead, SignalType
 from infrastructure.fetchers.http import HttpFetcher
-from modules.scraping.signals import classify_signal, extract_stack
+from modules.scraping.signals import SignalClassifier
 
 logger = structlog.get_logger()
 
@@ -43,12 +44,37 @@ class LinkedInAdapter:
     def poll_interval_seconds(self) -> int:
         return self._settings.linkedin_poll_interval_seconds
 
-    async def fetch_raw(self) -> list[dict[str, Any]]:
+    @property
+    def accepted_params(self) -> AdapterParamSchema:
+        return AdapterParamSchema(
+            name=self.name,
+            uses_queries=True,
+            supported_filters=["job_queries", "post_queries"],
+            default_queries=list(self._settings.linkedin_post_queries),
+            requires_api_key=True,
+            notes=(
+                "queries are used as post_queries by default. "
+                "filters.job_queries and filters.post_queries override independently. "
+                "Requires LEADS_LINKEDIN_RAPIDAPI_KEY."
+            ),
+        )
+
+    async def fetch_raw(self, params: ScrapeRequest) -> list[dict[str, Any]]:
         """Fetch jobs and posts from LinkedIn via RapidAPI."""
+        filters = params.filters or {}
+        job_queries = (
+            filters.get("job_queries")
+            or self._settings.linkedin_job_queries
+        )
+        post_queries = (
+            filters.get("post_queries")
+            or params.queries
+            or self._settings.linkedin_post_queries
+        )
         all_items: list[dict[str, Any]] = []
 
         # Job search — POST {"keywords": "...", "page": 1}
-        for query in self._settings.linkedin_job_queries:
+        for query in job_queries:
             try:
                 resp = await self._fetcher.post_json(
                     f"{_BASE_URL}/search-jobs",
@@ -72,7 +98,7 @@ class LinkedInAdapter:
                 )
 
         # Post search — POST with richer payload
-        for query in self._settings.linkedin_post_queries:
+        for query in post_queries:
             try:
                 resp = await self._fetcher.post_json(
                     f"{_BASE_URL}/search-posts",
@@ -110,17 +136,21 @@ class LinkedInAdapter:
 
         return all_items
 
-    def normalize(self, raw: dict[str, Any]) -> CanonicalLead | None:
+    def normalize(
+        self, raw: dict[str, Any], classifier: SignalClassifier
+    ) -> CanonicalLead | None:
         """Convert a LinkedIn API result to a CanonicalLead.
 
         Pure function — no I/O.
         """
         item_type = raw.get("_type", "job")
         if item_type == "post":
-            return self._normalize_post(raw)
-        return self._normalize_job(raw)
+            return self._normalize_post(raw, classifier)
+        return self._normalize_job(raw, classifier)
 
-    def _normalize_job(self, raw: dict[str, Any]) -> CanonicalLead | None:
+    def _normalize_job(
+        self, raw: dict[str, Any], classifier: SignalClassifier
+    ) -> CanonicalLead | None:
         """Normalize a /search-jobs result."""
         title = (
             raw.get("job_title")
@@ -154,19 +184,21 @@ class LinkedInAdapter:
             signal_strength=80,
             company_name=company or None,
             location=location or None,
-            stack_mentions=extract_stack(combined),
+            keywords=classifier.extract_keywords(combined),
             posted_at=_parse_date(
                 raw.get("posted_date") or raw.get("posted_at") or raw.get("posted")
             ),
         )
 
-    def _normalize_post(self, raw: dict[str, Any]) -> CanonicalLead | None:
+    def _normalize_post(
+        self, raw: dict[str, Any], classifier: SignalClassifier
+    ) -> CanonicalLead | None:
         """Normalize a /search-posts result."""
         text = raw.get("text") or raw.get("content") or ""
         if not text:
             return None
 
-        signal_type, signal_strength = classify_signal(text)
+        signal_type, signal_strength = classifier.classify(text)
         if signal_type is None:
             return None
 
@@ -185,7 +217,7 @@ class LinkedInAdapter:
             signal_strength=signal_strength,
             person_name=author or None,
             person_role=author_title or None,
-            stack_mentions=extract_stack(text),
+            keywords=classifier.extract_keywords(text),
             posted_at=_parse_date(raw.get("posted") or raw.get("posted_at")),
         )
 

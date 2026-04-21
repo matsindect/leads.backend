@@ -58,7 +58,7 @@ raw_leads_table = Table(
     Column("person_name", Text),
     Column("person_role", Text),
     Column("location", Text),
-    Column("stack_mentions", ARRAY(Text)),
+    Column("keywords", ARRAY(Text)),
     Column("posted_at", DateTime(timezone=True)),
     Column("fetched_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
     Column("enriched_at", DateTime(timezone=True)),
@@ -183,7 +183,7 @@ class PostgresLeadRepository:
                         person_name=lead.person_name,
                         person_role=lead.person_role,
                         location=lead.location,
-                        stack_mentions=lead.stack_mentions,
+                        keywords=lead.keywords,
                         posted_at=lead.posted_at,
                         status="new",
                     )

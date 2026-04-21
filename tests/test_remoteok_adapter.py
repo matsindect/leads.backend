@@ -8,11 +8,13 @@ import httpx
 import pytest
 import respx
 
+from api.schemas import ScrapeRequest
 from config import Settings
 from domain.models import SignalType
 from infrastructure.fetchers.http import HttpFetcher
 from infrastructure.fetchers.rss import RssFetcher
 from modules.scraping.adapters.remoteok import RemoteOKAdapter
+from modules.scraping.signals import DEFAULT_CLASSIFIER
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -41,7 +43,7 @@ class TestRemoteOKNormalize:
             "published_at": None,
             "author": "jobs@acmecorp.io",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.signal_type == SignalType.HIRING
         assert lead.signal_strength == 70
@@ -56,7 +58,7 @@ class TestRemoteOKNormalize:
             "published_at": None,
             "author": None,
         }
-        assert adapter.normalize(raw) is None
+        assert adapter.normalize(raw, DEFAULT_CLASSIFIER) is None
 
     def test_company_name_extracted_from_title(self, adapter: RemoteOKAdapter) -> None:
         raw = {
@@ -67,7 +69,7 @@ class TestRemoteOKNormalize:
             "published_at": None,
             "author": None,
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.company_name == "StartupX"
 
@@ -80,7 +82,7 @@ class TestRemoteOKNormalize:
             "published_at": None,
             "author": "hr@somecompany.com",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.company_domain == "somecompany.com"
 
@@ -93,7 +95,7 @@ class TestRemoteOKNormalize:
             "published_at": None,
             "author": None,
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.company_domain is None
 
@@ -107,6 +109,6 @@ class TestRemoteOKFetchRaw:
         xml = (FIXTURES / "sample_rss.xml").read_text()
         respx.get("https://remoteok.com/remote-jobs.rss").respond(200, text=xml)
 
-        entries = await adapter.fetch_raw()
+        entries = await adapter.fetch_raw(ScrapeRequest())
         assert len(entries) == 3
         assert entries[0]["title"] == "Acme Corp - Senior Python Developer"

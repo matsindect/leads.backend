@@ -9,6 +9,7 @@ from config import Settings
 from domain.models import SignalType
 from infrastructure.fetchers.http import HttpFetcher
 from modules.scraping.adapters.linkedin import LinkedInAdapter
+from modules.scraping.signals import DEFAULT_CLASSIFIER
 
 
 @pytest.fixture
@@ -40,7 +41,7 @@ class TestNormalizeJob:
             "description": "We need a Python FastAPI expert.",
             "posted_date": "2026-04-10T12:00:00Z",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.signal_type == SignalType.HIRING
         assert lead.signal_strength == 80
@@ -57,15 +58,15 @@ class TestNormalizeJob:
             "job_id": "1",
             "description": "Python, FastAPI, PostgreSQL, Docker, Kubernetes.",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
-        assert "python" in lead.stack_mentions
-        assert "fastapi" in lead.stack_mentions
-        assert "docker" in lead.stack_mentions
+        assert "python" in lead.keywords
+        assert "fastapi" in lead.keywords
+        assert "docker" in lead.keywords
 
     def test_empty_title_returns_none(self, adapter: LinkedInAdapter) -> None:
         raw = {"_type": "job", "job_title": "", "company": ""}
-        assert adapter.normalize(raw) is None
+        assert adapter.normalize(raw, DEFAULT_CLASSIFIER) is None
 
     def test_location_preserved(self, adapter: LinkedInAdapter) -> None:
         raw = {
@@ -76,7 +77,7 @@ class TestNormalizeJob:
             "job_url": "https://linkedin.com/jobs/2",
             "job_id": "2",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.location == "San Francisco, CA"
 
@@ -94,7 +95,7 @@ class TestNormalizePost:
             "post_id": "post_001",
             "posted": "2026-04-21 06:56:57.000",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.signal_type == SignalType.HIRING
         assert lead.source == "linkedin"
@@ -113,7 +114,7 @@ class TestNormalizePost:
             "post_id": "post_002",
             "posted": "2026-04-21 06:56:57.000",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.posted_at is not None
 
@@ -125,7 +126,7 @@ class TestNormalizePost:
             "post_url": "https://linkedin.com/posts/devlead",
             "post_id": "post_003",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.signal_type == SignalType.TOOL_EVALUATION
 
@@ -137,11 +138,11 @@ class TestNormalizePost:
             "post_url": "https://linkedin.com/posts/random",
             "post_id": "post_004",
         }
-        assert adapter.normalize(raw) is None
+        assert adapter.normalize(raw, DEFAULT_CLASSIFIER) is None
 
     def test_empty_text_returns_none(self, adapter: LinkedInAdapter) -> None:
         raw = {"_type": "post", "text": "", "poster_name": "Nobody"}
-        assert adapter.normalize(raw) is None
+        assert adapter.normalize(raw, DEFAULT_CLASSIFIER) is None
 
     def test_post_title_truncated(self, adapter: LinkedInAdapter) -> None:
         long_text = "We're hiring " + "x" * 200
@@ -151,6 +152,6 @@ class TestNormalizePost:
             "post_url": "https://linkedin.com/posts/long",
             "post_id": "post_005",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert len(lead.title) <= 120

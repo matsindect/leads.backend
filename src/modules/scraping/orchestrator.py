@@ -12,9 +12,11 @@ from datetime import UTC, datetime
 
 import structlog
 
+from api.schemas import ScrapeRequest
 from config import Settings
 from domain.interfaces import EventPublisher, LeadRepository, SourceAdapter
 from domain.models import CanonicalLead, RunReport
+from modules.scraping.signals import build_classifier
 
 logger = structlog.get_logger()
 
@@ -32,15 +34,34 @@ class ScrapeOrchestrator:
         self._publisher = publisher
         self._settings = settings
 
-    async def run(self, adapter: SourceAdapter) -> RunReport:
+    async def run(
+        self,
+        adapter: SourceAdapter,
+        params: ScrapeRequest | None = None,
+    ) -> RunReport:
         """Execute one full scrape cycle for *adapter*.
 
-        Returns a RunReport regardless of success or failure.
+        Request-level *params* override env defaults when present; adapters
+        that don't use a particular field ignore it.  Returns a RunReport
+        regardless of success or failure.
         """
         run_id = uuid.uuid4()
         log = logger.bind(adapter=adapter.name, run_id=str(run_id))
         started_at = datetime.now(UTC)
         start_ns = time.monotonic_ns()
+
+        params = params or ScrapeRequest()
+        classifier = build_classifier(
+            signal_patterns=(
+                [(p.pattern, p.signal_type, p.strength) for p in params.signal_patterns]
+                if params.signal_patterns is not None
+                else None
+            ),
+            keywords=params.extract_keywords,
+            default_signal_type=params.default_signal_type,
+            default_signal_strength=params.default_signal_strength,
+            keep_unclassified=params.keep_unclassified,
+        )
 
         # Circuit breaker check
         if await self._is_circuit_open(adapter.name, log):
@@ -55,13 +76,13 @@ class ScrapeOrchestrator:
 
         try:
             log.info("scrape_started")
-            raw_records = await adapter.fetch_raw()
+            raw_records = await adapter.fetch_raw(params)
             fetched_count = len(raw_records)
             log.info("fetch_complete", fetched=fetched_count)
 
             for raw in raw_records:
                 try:
-                    lead = adapter.normalize(raw)
+                    lead = adapter.normalize(raw, classifier)
                     if lead is not None:
                         normalized.append(lead)
                 except Exception:

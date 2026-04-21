@@ -41,6 +41,13 @@ def _hackernews_factory(
     return HackerNewsAdapter(fetcher=default_fetcher, settings=settings)
 
 
+def _hnhiring_factory(
+    *, default_fetcher: HttpFetcher, settings: Settings, **_: Any,
+) -> SourceAdapter:
+    from modules.scraping.adapters.hnhiring import HNHiringAdapter
+    return HNHiringAdapter(fetcher=default_fetcher, settings=settings)
+
+
 def _remoteok_factory(
     *, rss_fetcher: RssFetcher, settings: Settings, **_: Any,
 ) -> SourceAdapter:
@@ -101,6 +108,7 @@ def _linkedin_factory(
 ADAPTER_FACTORIES: dict[str, AdapterFactory] = {
     "reddit": _reddit_factory,
     "hackernews": _hackernews_factory,
+    "hnhiring": _hnhiring_factory,
     "remoteok": _remoteok_factory,
     "funding": _funding_factory,
     "producthunt": _producthunt_factory,

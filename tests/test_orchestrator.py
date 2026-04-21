@@ -31,10 +31,15 @@ class FakeAdapter:
     def poll_interval_seconds(self) -> int:
         return 60
 
-    async def fetch_raw(self) -> list[dict]:
+    @property
+    def accepted_params(self):
+        from api.schemas import AdapterParamSchema
+        return AdapterParamSchema(name="fake")
+
+    async def fetch_raw(self, params) -> list[dict]:
         return self._raw
 
-    def normalize(self, raw: dict) -> CanonicalLead | None:
+    def normalize(self, raw: dict, classifier) -> CanonicalLead | None:
         idx = self._raw.index(raw)
         return self._leads[idx] if idx < len(self._leads) else None
 

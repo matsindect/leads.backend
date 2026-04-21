@@ -27,7 +27,7 @@ FAKE_LEAD_DATA = {
     "company_name": None,
     "company_domain": "acme.io",
     "person_name": "founder",
-    "stack_mentions": ["python", "fastapi"],
+    "keywords": ["python", "fastapi"],
     "posted_at": datetime(2024, 4, 7, tzinfo=UTC),
     "status": "new",
 }

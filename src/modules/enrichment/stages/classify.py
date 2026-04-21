@@ -72,7 +72,7 @@ class ClassifyStage:
             company_name=context.company_name,
             company_domain=context.company_domain,
             company_enrichment=context.company_enrichment,
-            stack_mentions=lead.get("stack_mentions", []),
+            keywords=lead.get("keywords", []),
             user_skills=self._settings.user_skills,
         )
 

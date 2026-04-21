@@ -9,6 +9,7 @@ import pytest
 from config import Settings
 from domain.models import SignalType
 from modules.scraping.adapters.wellfound import WellfoundAdapter
+from modules.scraping.signals import DEFAULT_CLASSIFIER
 
 
 @pytest.fixture
@@ -27,7 +28,7 @@ class TestWellfoundNormalize:
             "url": "https://wellfound.com/jobs/12345",
             "tags": "Python FastAPI Docker Kubernetes",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.signal_type == SignalType.HIRING
         assert lead.signal_strength == 75
@@ -43,15 +44,15 @@ class TestWellfoundNormalize:
             "url": "https://wellfound.com/jobs/99",
             "tags": "React TypeScript Node PostgreSQL AWS",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
-        assert "react" in lead.stack_mentions
-        assert "typescript" in lead.stack_mentions
-        assert "postgres" in lead.stack_mentions
+        assert "react" in lead.keywords
+        assert "typescript" in lead.keywords
+        assert "postgres" in lead.keywords
 
     def test_empty_title_returns_none(self, adapter: WellfoundAdapter) -> None:
         raw = {"title": "", "company": "", "url": "", "tags": ""}
-        assert adapter.normalize(raw) is None
+        assert adapter.normalize(raw, DEFAULT_CLASSIFIER) is None
 
     def test_location_preserved(self, adapter: WellfoundAdapter) -> None:
         raw = {
@@ -61,7 +62,7 @@ class TestWellfoundNormalize:
             "url": "https://wellfound.com/jobs/1",
             "tags": "",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.location == "San Francisco, CA"
 
@@ -73,6 +74,6 @@ class TestWellfoundNormalize:
             "tags": "",
             "domain": "newco.io",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.company_domain == "newco.io"

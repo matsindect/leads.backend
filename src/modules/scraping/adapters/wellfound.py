@@ -13,10 +13,11 @@ from typing import Any
 import structlog
 from bs4 import BeautifulSoup
 
+from api.schemas import AdapterParamSchema, ScrapeRequest
 from config import Settings
 from domain.models import CanonicalLead, SignalType
 from infrastructure.fetchers.browser import BrowserFetcher
-from modules.scraping.signals import extract_stack
+from modules.scraping.signals import SignalClassifier
 
 logger = structlog.get_logger()
 
@@ -42,11 +43,24 @@ class WellfoundAdapter:
     def poll_interval_seconds(self) -> int:
         return self._settings.wellfound_poll_interval_seconds
 
-    async def fetch_raw(self) -> list[dict[str, Any]]:
+    @property
+    def accepted_params(self) -> AdapterParamSchema:
+        return AdapterParamSchema(
+            name=self.name,
+            uses_sources=True,
+            default_sources=list(self._settings.wellfound_search_roles),
+            notes=(
+                "sources = Wellfound role slugs (e.g. 'developer', "
+                "'designer'). Requires ENABLE_BROWSER_FETCHER."
+            ),
+        )
+
+    async def fetch_raw(self, params: ScrapeRequest) -> list[dict[str, Any]]:
         """Render Wellfound job pages and extract listing data."""
+        roles = params.sources or self._settings.wellfound_search_roles
         all_listings: list[dict[str, Any]] = []
 
-        for role in self._settings.wellfound_search_roles:
+        for role in roles:
             url = f"{_BASE_URL}/{role}"
             log = logger.bind(adapter=self.name, role=role)
 
@@ -62,7 +76,9 @@ class WellfoundAdapter:
 
         return all_listings
 
-    def normalize(self, raw: dict[str, Any]) -> CanonicalLead | None:
+    def normalize(
+        self, raw: dict[str, Any], classifier: SignalClassifier
+    ) -> CanonicalLead | None:
         """Convert a parsed Wellfound listing to a CanonicalLead.
 
         Pure function — no I/O.
@@ -87,7 +103,7 @@ class WellfoundAdapter:
             company_name=company or None,
             company_domain=raw.get("domain"),
             location=raw.get("location"),
-            stack_mentions=extract_stack(combined),
+            keywords=classifier.extract_keywords(combined),
         )
 
 

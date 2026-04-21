@@ -9,6 +9,7 @@ from config import Settings
 from domain.models import SignalType
 from infrastructure.fetchers.http import HttpFetcher
 from modules.scraping.adapters.hackernews import HackerNewsAdapter
+from modules.scraping.signals import DEFAULT_CLASSIFIER
 
 
 @pytest.fixture
@@ -30,7 +31,7 @@ class TestHackerNewsNormalize:
             "url": "https://acme.io/careers",
             "created_at": "2024-04-07T12:00:00.000Z",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.signal_type == SignalType.HIRING
         assert lead.source == "hackernews"
@@ -44,7 +45,7 @@ class TestHackerNewsNormalize:
             "author": "tourist",
             "created_at": "2024-04-07T12:00:00.000Z",
         }
-        assert adapter.normalize(raw) is None
+        assert adapter.normalize(raw, DEFAULT_CLASSIFIER) is None
 
     def test_stack_extraction(self, adapter: HackerNewsAdapter) -> None:
         raw = {
@@ -54,11 +55,11 @@ class TestHackerNewsNormalize:
             "author": "devops",
             "created_at": "2024-04-07T12:00:00.000Z",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
-        assert "kubernetes" in lead.stack_mentions
-        assert "docker" in lead.stack_mentions
-        assert "postgres" in lead.stack_mentions
+        assert "kubernetes" in lead.keywords
+        assert "docker" in lead.keywords
+        assert "postgres" in lead.keywords
 
     def test_domain_extraction(self, adapter: HackerNewsAdapter) -> None:
         raw = {
@@ -68,7 +69,7 @@ class TestHackerNewsNormalize:
             "author": "founder",
             "created_at": "2024-04-07T12:00:00.000Z",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.company_domain == "startup.io"
 
@@ -81,7 +82,7 @@ class TestHackerNewsNormalize:
             "author": "dev",
             "created_at": "2024-04-07T12:00:00.000Z",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.url == "https://news.ycombinator.com/item?id=33333"
 
@@ -93,7 +94,7 @@ class TestHackerNewsNormalize:
             "author": "eng",
             "created_at": "2024-04-07T15:30:00.000Z",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.posted_at is not None
         assert lead.posted_at.tzinfo is not None

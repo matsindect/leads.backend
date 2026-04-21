@@ -9,10 +9,12 @@ import httpx
 import pytest
 import respx
 
+from api.schemas import ScrapeRequest
 from config import Settings
 from domain.models import SignalType
 from infrastructure.fetchers.http import HttpFetcher
 from modules.scraping.adapters.google_cse import GoogleCSEAdapter, _DailyBudget
+from modules.scraping.signals import DEFAULT_CLASSIFIER
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -42,7 +44,7 @@ class TestGoogleCSENormalize:
             "link": "https://reddit.com/r/startups/abc123",
             "snippet": "Our startup at acme.io is looking for Python developers.",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.signal_type == SignalType.HIRING
         assert lead.source == "google_cse"
@@ -53,7 +55,7 @@ class TestGoogleCSENormalize:
             "link": "https://news.ycombinator.com/item?id=99999",
             "snippet": "Comparing monitoring tools with kubernetes and AWS.",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.signal_type == SignalType.TOOL_EVALUATION
 
@@ -63,7 +65,7 @@ class TestGoogleCSENormalize:
             "link": "https://example.com/sunsets",
             "snippet": "Amazing photographs from around the world.",
         }
-        assert adapter.normalize(raw) is None
+        assert adapter.normalize(raw, DEFAULT_CLASSIFIER) is None
 
     def test_domain_from_result_url(self, adapter: GoogleCSEAdapter) -> None:
         """Non-platform URLs use the result domain as company_domain."""
@@ -72,7 +74,7 @@ class TestGoogleCSENormalize:
             "link": "https://acme.io/careers",
             "snippet": "Join our team.",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.company_domain == "acme.io"
 
@@ -83,20 +85,20 @@ class TestGoogleCSENormalize:
             "link": "https://www.reddit.com/r/startups/abc",
             "snippet": "Looking for devs at startup.io",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
         assert lead.company_domain == "startup.io"
 
-    def test_stack_mentions(self, adapter: GoogleCSEAdapter) -> None:
+    def test_keywords(self, adapter: GoogleCSEAdapter) -> None:
         raw = {
             "title": "Hiring Python + FastAPI developer",
             "link": "https://example.com/job",
             "snippet": "We use docker and kubernetes.",
         }
-        lead = adapter.normalize(raw)
+        lead = adapter.normalize(raw, DEFAULT_CLASSIFIER)
         assert lead is not None
-        assert "python" in lead.stack_mentions
-        assert "docker" in lead.stack_mentions
+        assert "python" in lead.keywords
+        assert "docker" in lead.keywords
 
 
 class TestGoogleCSEFetchRaw:
@@ -111,7 +113,7 @@ class TestGoogleCSEFetchRaw:
         data = json.loads((FIXTURES / "sample_google_cse_response.json").read_text())
         respx.get("https://www.googleapis.com/customsearch/v1").respond(200, json=data)
 
-        results = await adapter.fetch_raw()
+        results = await adapter.fetch_raw(ScrapeRequest())
         assert len(results) == 3
 
     @respx.mock
@@ -130,7 +132,7 @@ class TestGoogleCSEFetchRaw:
             200, json={"items": [{"title": "t", "link": "l", "snippet": "s"}]}
         )
 
-        await adapter.fetch_raw()
+        await adapter.fetch_raw(ScrapeRequest())
         # Budget=1, so only 1 query should have been made
         assert route.call_count == 1
 

@@ -1,8 +1,8 @@
-"""Google Custom Search Engine adapter — searches for leads via Google CSE API.
+"""Google Custom Search Engine adapter.
 
-Free tier: 100 queries/day.  An in-memory daily counter prevents
-budget overruns.  Each call to fetch_raw() runs one query per
-configured search term.
+Per-request ``queries`` overrides ``google_cse_queries``.  ``limit`` maps
+to ``num`` (max results per query, CSE caps at 10).  Daily query budget
+is enforced to protect the free tier (100 queries/day).
 
 Satisfies ``domain.interfaces.SourceAdapter``.
 """
@@ -15,10 +15,11 @@ from urllib.parse import urlparse
 
 import structlog
 
+from api.schemas import AdapterParamSchema, ScrapeRequest
 from config import Settings
 from domain.models import CanonicalLead
 from infrastructure.fetchers.http import HttpFetcher
-from modules.scraping.signals import classify_signal, extract_domain, extract_stack
+from modules.scraping.signals import SignalClassifier, extract_domain
 
 logger = structlog.get_logger()
 
@@ -69,11 +70,24 @@ class GoogleCSEAdapter:
     def poll_interval_seconds(self) -> int:
         return self._settings.google_cse_poll_interval_seconds
 
-    async def fetch_raw(self) -> list[dict[str, Any]]:
-        """Run configured search queries against the CSE API."""
+    @property
+    def accepted_params(self) -> AdapterParamSchema:
+        return AdapterParamSchema(
+            name=self.name,
+            uses_queries=True,
+            uses_limit=True,
+            default_queries=list(self._settings.google_cse_queries),
+            default_limit=10,
+            requires_api_key=True,
+            notes="limit maps to num (max 10 per query). Daily budget enforced in-memory.",
+        )
+
+    async def fetch_raw(self, params: ScrapeRequest) -> list[dict[str, Any]]:
+        queries = params.queries or self._settings.google_cse_queries
+        num = str(min(params.limit or 10, 10))
         all_results: list[dict[str, Any]] = []
 
-        for query in self._settings.google_cse_queries:
+        for query in queries:
             if not self._budget.can_query():
                 logger.warning(
                     "google_cse_budget_exhausted",
@@ -87,7 +101,7 @@ class GoogleCSEAdapter:
                     "key": self._settings.google_cse_api_key,
                     "cx": self._settings.google_cse_engine_id,
                     "q": query,
-                    "num": "10",
+                    "num": num,
                 },
             )
             self._budget.record_query()
@@ -100,21 +114,18 @@ class GoogleCSEAdapter:
 
         return all_results
 
-    def normalize(self, raw: dict[str, Any]) -> CanonicalLead | None:
-        """Convert a CSE result to a CanonicalLead.
-
-        Pure function — no I/O.  Drops results with no signal match.
-        """
+    def normalize(
+        self, raw: dict[str, Any], classifier: SignalClassifier
+    ) -> CanonicalLead | None:
         title = raw.get("title", "")
         snippet = raw.get("snippet", "")
         combined = f"{title} {snippet}"
         link = raw.get("link", "")
 
-        signal_type, signal_strength = classify_signal(combined)
+        signal_type, signal_strength = classifier.classify(combined)
         if signal_type is None:
             return None
 
-        # Extract domain from the result URL itself
         domain = _domain_from_url(link)
 
         return CanonicalLead(
@@ -127,18 +138,16 @@ class GoogleCSEAdapter:
             signal_type=signal_type,
             signal_strength=signal_strength,
             company_domain=domain or extract_domain(combined),
-            stack_mentions=extract_stack(combined),
+            keywords=classifier.extract_keywords(combined),
         )
 
 
 def _domain_from_url(url: str) -> str | None:
-    """Extract the domain from a URL, excluding common platforms."""
     try:
         parsed = urlparse(url)
         host = parsed.hostname or ""
     except ValueError:
         return None
-    # Skip common platforms — their domain isn't the company's
     skip = {"reddit.com", "news.ycombinator.com", "twitter.com", "x.com", "github.com"}
     bare = host.removeprefix("www.")
     if bare in skip:

@@ -48,7 +48,7 @@ def sample_canonical_lead() -> CanonicalLead:
         signal_strength=60,
         company_domain="acme.io",
         person_name="startup_founder",
-        stack_mentions=["python", "fastapi"],
+        keywords=["python", "fastapi"],
         posted_at=datetime(2024, 4, 7, tzinfo=UTC),
     )
 
@@ -66,7 +66,7 @@ def sample_canonical_lead_no_domain() -> CanonicalLead:
         signal_type=SignalType.PAIN_POINT,
         signal_strength=70,
         person_name="DevOps Dan",
-        stack_mentions=["jenkins", "docker"],
+        keywords=["jenkins", "docker"],
         posted_at=datetime(2024, 4, 7, tzinfo=UTC),
     )
 
