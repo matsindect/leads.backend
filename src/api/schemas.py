@@ -104,3 +104,52 @@ class AdapterParamSchema(BaseModel):
     default_limit: int | None = None
     requires_api_key: bool = False
     notes: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Prospect discovery schemas (LinkedIn /search-companies & /search-employees)
+# ---------------------------------------------------------------------------
+
+
+class ProspectCompanyDiscoverRequest(BaseModel):
+    """Body for POST /prospects/linkedin/companies.
+
+    All fields optional — unset ones fall back to env defaults
+    (LEADS_LINKEDIN_COMPANY_*).
+    """
+
+    headcounts: list[str] | None = None
+    industry_codes: list[int] | None = None
+    hq_location_codes: list[int] | None = None
+    technologies: list[str] | None = None
+    keywords: str | None = None
+    headcount_growth_min: int | None = None
+    headcount_growth_max: int | None = None
+    annual_revenue_min: int | None = None
+    annual_revenue_max: int | None = None
+    annual_revenue_currency: str | None = None
+    hiring_on_linkedin: bool | None = None
+    recent_activities: list[str] | None = None
+    limit: int | None = Field(default=None, ge=1, le=1000)
+
+
+class ProspectPeopleDiscoverRequest(BaseModel):
+    """Body for POST /prospects/linkedin/employees."""
+
+    seed_urls: list[str] | None = Field(
+        default=None,
+        description=(
+            "Sales Navigator search URLs. Each URL produces up to `limit` people. "
+            "Falls back to LEADS_LINKEDIN_EMPLOYEE_SEED_URLS when omitted."
+        ),
+    )
+    limit: int | None = Field(default=None, ge=1, le=100)
+
+
+class ProspectDiscoveryResult(BaseModel):
+    """Response for the two discover endpoints."""
+
+    inserted: int
+    duplicates: int
+    errors: int = 0
+    sample_ids: list[str] = Field(default_factory=list)

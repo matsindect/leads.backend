@@ -35,6 +35,8 @@ from domain.models import (
     AdapterInfo,
     CanonicalLead,
     RunReport,
+    TargetCompany,
+    TargetPerson,
 )
 from modules.scraping.dedup import compute_dedup_hash
 
@@ -139,6 +141,61 @@ llm_call_log_table = Table(
     Column("output_tokens", Integer, nullable=False),
     Column("cost_usd", Numeric(10, 6), nullable=False),
     Column("called_at", DateTime(timezone=True), nullable=False, server_default=text("NOW()")),
+)
+
+
+target_companies_table = Table(
+    "target_companies",
+    metadata,
+    Column(
+        "id", UUID(as_uuid=True),
+        primary_key=True, server_default=text("gen_random_uuid()"),
+    ),
+    Column("source", Text, nullable=False),
+    Column("source_id", Text, nullable=False),
+    Column("linkedin_url", Text),
+    Column("name", Text, nullable=False),
+    Column("domain", Text),
+    Column("industry", Text),
+    Column("headcount_band", Text),
+    Column("headcount_growth", Integer),
+    Column("annual_revenue_min", Integer),
+    Column("annual_revenue_max", Integer),
+    Column("annual_revenue_currency", Text),
+    Column("hq_location", Text),
+    Column("technologies", ARRAY(Text)),
+    Column("hiring_on_linkedin", Boolean),
+    Column("raw_payload", JSONB, nullable=False),
+    Column(
+        "discovered_at", DateTime(timezone=True),
+        nullable=False, server_default=text("NOW()"),
+    ),
+    sa.UniqueConstraint("source", "source_id"),
+)
+
+target_people_table = Table(
+    "target_people",
+    metadata,
+    Column(
+        "id", UUID(as_uuid=True),
+        primary_key=True, server_default=text("gen_random_uuid()"),
+    ),
+    Column("source", Text, nullable=False),
+    Column("source_id", Text, nullable=False),
+    Column("linkedin_url", Text),
+    Column("full_name", Text, nullable=False),
+    Column("headline", Text),
+    Column("current_title", Text),
+    Column("current_company", Text),
+    Column("current_company_domain", Text),
+    Column("location", Text),
+    Column("seed_url", Text),
+    Column("raw_payload", JSONB, nullable=False),
+    Column(
+        "discovered_at", DateTime(timezone=True),
+        nullable=False, server_default=text("NOW()"),
+    ),
+    sa.UniqueConstraint("source", "source_id"),
 )
 
 
@@ -709,6 +766,143 @@ class PostgresLeadRepository:
             "by_signal_type": by_signal,
             "by_status": by_status,
         }
+
+    # ------------------------------------------------------------------
+    # ProspectRepository methods
+    # ------------------------------------------------------------------
+
+    async def upsert_target_companies(
+        self, companies: Sequence[TargetCompany]
+    ) -> tuple[list[uuid.UUID], int]:
+        """Insert companies, skip duplicates by (source, source_id)."""
+        if not companies:
+            return [], 0
+
+        inserted_ids: list[uuid.UUID] = []
+        duplicates = 0
+
+        async with self._session_factory() as session, session.begin():
+            for company in companies:
+                company_id = uuid.uuid4()
+                stmt = (
+                    sa.dialects.postgresql.insert(target_companies_table)
+                    .values(
+                        id=company_id,
+                        source=company.source,
+                        source_id=company.source_id,
+                        linkedin_url=company.linkedin_url,
+                        name=company.name,
+                        domain=company.domain,
+                        industry=company.industry,
+                        headcount_band=company.headcount_band,
+                        headcount_growth=company.headcount_growth,
+                        annual_revenue_min=company.annual_revenue_min,
+                        annual_revenue_max=company.annual_revenue_max,
+                        annual_revenue_currency=company.annual_revenue_currency,
+                        hq_location=company.hq_location,
+                        technologies=company.technologies,
+                        hiring_on_linkedin=company.hiring_on_linkedin,
+                        raw_payload=_json_safe(company.raw_payload),
+                    )
+                    .on_conflict_do_nothing(index_elements=["source", "source_id"])
+                    .returning(target_companies_table.c.id)
+                )
+                result = await session.execute(stmt)
+                row = result.fetchone()
+                if row is not None:
+                    inserted_ids.append(row[0])
+                else:
+                    duplicates += 1
+
+        return inserted_ids, duplicates
+
+    async def upsert_target_people(
+        self, people: Sequence[TargetPerson]
+    ) -> tuple[list[uuid.UUID], int]:
+        """Insert people, skip duplicates by (source, source_id)."""
+        if not people:
+            return [], 0
+
+        inserted_ids: list[uuid.UUID] = []
+        duplicates = 0
+
+        async with self._session_factory() as session, session.begin():
+            for person in people:
+                person_id = uuid.uuid4()
+                stmt = (
+                    sa.dialects.postgresql.insert(target_people_table)
+                    .values(
+                        id=person_id,
+                        source=person.source,
+                        source_id=person.source_id,
+                        linkedin_url=person.linkedin_url,
+                        full_name=person.full_name,
+                        headline=person.headline,
+                        current_title=person.current_title,
+                        current_company=person.current_company,
+                        current_company_domain=person.current_company_domain,
+                        location=person.location,
+                        seed_url=person.seed_url,
+                        raw_payload=_json_safe(person.raw_payload),
+                    )
+                    .on_conflict_do_nothing(index_elements=["source", "source_id"])
+                    .returning(target_people_table.c.id)
+                )
+                result = await session.execute(stmt)
+                row = result.fetchone()
+                if row is not None:
+                    inserted_ids.append(row[0])
+                else:
+                    duplicates += 1
+
+        return inserted_ids, duplicates
+
+    async def list_target_companies(
+        self, *, limit: int = 50, offset: int = 0
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Paginated list of target_companies."""
+        async with self._session_factory() as session:
+            total = int(
+                (
+                    await session.execute(
+                        sa.select(sa.func.count()).select_from(target_companies_table)
+                    )
+                ).scalar_one()
+            )
+            result = await session.execute(
+                sa.select(target_companies_table)
+                .order_by(target_companies_table.c.discovered_at.desc())
+                .offset(offset)
+                .limit(limit)
+            )
+            rows = [dict(row._mapping) for row in result.fetchall()]
+        return rows, total
+
+    async def list_target_people(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        company_domain: str | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Paginated list of target_people, optionally filtered by company domain."""
+        async with self._session_factory() as session:
+            query = sa.select(target_people_table)
+            count_query = sa.select(sa.func.count()).select_from(target_people_table)
+
+            if company_domain:
+                clause = target_people_table.c.current_company_domain == company_domain
+                query = query.where(clause)
+                count_query = count_query.where(clause)
+
+            total = int((await session.execute(count_query)).scalar_one())
+            result = await session.execute(
+                query.order_by(target_people_table.c.discovered_at.desc())
+                .offset(offset)
+                .limit(limit)
+            )
+            rows = [dict(row._mapping) for row in result.fetchall()]
+        return rows, total
 
 
 def _json_safe(value: Any) -> Any:

@@ -20,14 +20,25 @@ from api.dependencies import (
     EventBusDep,
     OrchestratorDep,
     PipelineDep,
+    ProspectRepoDep,
     PublisherDep,
     RepositoryDep,
     SettingsDep,
 )
-from api.schemas import AdapterParamSchema, ScrapeRequest
+from api.schemas import (
+    AdapterParamSchema,
+    ProspectCompanyDiscoverRequest,
+    ProspectDiscoveryResult,
+    ProspectPeopleDiscoverRequest,
+    ScrapeRequest,
+)
 from domain.events import LeadCreated
 from domain.models import AlreadyProcessedError
 from modules.enrichment.stages.classify import BudgetExceededError
+from modules.scraping.adapters.linkedin import (
+    CompanySearchParams,
+    LinkedInAdapter,
+)
 
 # TODO: Add auth middleware here when moving beyond internal network deployment.
 
@@ -355,4 +366,162 @@ async def enrichment_health(
         "llm_spend_today_usd": daily_cost,
         "llm_budget_usd": settings.daily_llm_budget_usd,
         "budget_remaining_usd": max(0, settings.daily_llm_budget_usd - daily_cost),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Prospect discovery endpoints (LinkedIn /search-companies & /search-employees)
+# ---------------------------------------------------------------------------
+
+
+def _require_linkedin_adapter(adapters: dict[str, Any]) -> LinkedInAdapter:
+    """Return the LinkedIn adapter or raise 503 when not configured."""
+    adapter = adapters.get("linkedin")
+    if adapter is None:
+        raise HTTPException(
+            status_code=503,
+            detail="LinkedIn adapter disabled. Set LEADS_LINKEDIN_RAPIDAPI_KEY.",
+        )
+    if not isinstance(adapter, LinkedInAdapter):
+        raise HTTPException(status_code=500, detail="Unexpected LinkedIn adapter type.")
+    return adapter
+
+
+@router.post("/prospects/linkedin/companies", response_model=ProspectDiscoveryResult)
+async def discover_linkedin_companies(
+    body: ProspectCompanyDiscoverRequest,
+    adapters: AdaptersDep,
+    prospects: ProspectRepoDep,
+    settings: SettingsDep,
+) -> ProspectDiscoveryResult:
+    """Run /search-companies with filters and persist results to target_companies.
+
+    Any field in the body overrides the corresponding LEADS_LINKEDIN_COMPANY_*
+    env setting; unset fields use env defaults.
+    """
+    linkedin = _require_linkedin_adapter(adapters)
+
+    params = CompanySearchParams(
+        headcounts=body.headcounts if body.headcounts is not None
+        else list(settings.linkedin_company_headcounts),
+        industry_codes=body.industry_codes if body.industry_codes is not None
+        else list(settings.linkedin_company_industry_codes),
+        hq_location_codes=body.hq_location_codes if body.hq_location_codes is not None
+        else list(settings.linkedin_company_hq_location_codes),
+        technologies=body.technologies if body.technologies is not None
+        else list(settings.linkedin_company_technologies),
+        keywords=body.keywords if body.keywords is not None
+        else settings.linkedin_company_keywords,
+        headcount_growth_min=(
+            body.headcount_growth_min if body.headcount_growth_min is not None
+            else settings.linkedin_company_headcount_growth_min
+        ),
+        headcount_growth_max=(
+            body.headcount_growth_max if body.headcount_growth_max is not None
+            else settings.linkedin_company_headcount_growth_max
+        ),
+        annual_revenue_min=(
+            body.annual_revenue_min if body.annual_revenue_min is not None
+            else settings.linkedin_company_annual_revenue_min
+        ),
+        annual_revenue_max=(
+            body.annual_revenue_max if body.annual_revenue_max is not None
+            else settings.linkedin_company_annual_revenue_max
+        ),
+        annual_revenue_currency=(
+            body.annual_revenue_currency if body.annual_revenue_currency is not None
+            else settings.linkedin_company_annual_revenue_currency
+        ),
+        hiring_on_linkedin=(
+            body.hiring_on_linkedin if body.hiring_on_linkedin is not None
+            else settings.linkedin_company_hiring_on_linkedin
+        ),
+        recent_activities=body.recent_activities if body.recent_activities is not None
+        else [],
+        limit=body.limit if body.limit is not None else settings.linkedin_company_limit,
+    )
+
+    companies = await linkedin.fetch_target_companies(params)
+    inserted_ids, duplicates = await prospects.upsert_target_companies(companies)
+
+    return ProspectDiscoveryResult(
+        inserted=len(inserted_ids),
+        duplicates=duplicates,
+        sample_ids=[str(i) for i in inserted_ids[:10]],
+    )
+
+
+@router.post("/prospects/linkedin/employees", response_model=ProspectDiscoveryResult)
+async def discover_linkedin_employees(
+    body: ProspectPeopleDiscoverRequest,
+    adapters: AdaptersDep,
+    prospects: ProspectRepoDep,
+    settings: SettingsDep,
+) -> ProspectDiscoveryResult:
+    """Run /search-employees for each seed URL and persist to target_people."""
+    linkedin = _require_linkedin_adapter(adapters)
+
+    seed_urls = body.seed_urls if body.seed_urls else list(
+        settings.linkedin_employee_seed_urls
+    )
+    if not seed_urls:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No seed URLs. Provide body.seed_urls or set "
+                "LEADS_LINKEDIN_EMPLOYEE_SEED_URLS."
+            ),
+        )
+    limit = body.limit if body.limit is not None else settings.linkedin_employee_limit
+
+    people = await linkedin.fetch_target_people(seed_urls=seed_urls, limit=limit)
+    inserted_ids, duplicates = await prospects.upsert_target_people(people)
+
+    return ProspectDiscoveryResult(
+        inserted=len(inserted_ids),
+        duplicates=duplicates,
+        sample_ids=[str(i) for i in inserted_ids[:10]],
+    )
+
+
+@router.get("/prospects/companies")
+async def list_prospect_companies(
+    prospects: ProspectRepoDep,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict[str, Any]:
+    """Paginated list of discovered target companies."""
+    page_size = min(page_size, 100)
+    offset = (max(page, 1) - 1) * page_size
+    rows, total = await prospects.list_target_companies(
+        limit=page_size, offset=offset
+    )
+    return {
+        "items": [_serialize_lead(r) for r in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size if total else 0,
+    }
+
+
+@router.get("/prospects/people")
+async def list_prospect_people(
+    prospects: ProspectRepoDep,
+    page: int = 1,
+    page_size: int = 50,
+    company_domain: str | None = None,
+) -> dict[str, Any]:
+    """Paginated list of discovered target people."""
+    page_size = min(page_size, 100)
+    offset = (max(page, 1) - 1) * page_size
+    rows, total = await prospects.list_target_people(
+        limit=page_size, offset=offset, company_domain=company_domain
+    )
+    return {
+        "items": [_serialize_lead(r) for r in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size if total else 0,
     }

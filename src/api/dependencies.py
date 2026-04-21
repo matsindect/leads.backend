@@ -13,7 +13,13 @@ from fastapi import Depends, Request
 
 from application.bus import EventBus
 from config import Settings
-from domain.interfaces import EnrichmentRepository, EventPublisher, LeadRepository, SourceAdapter
+from domain.interfaces import (
+    EnrichmentRepository,
+    EventPublisher,
+    LeadRepository,
+    ProspectRepository,
+    SourceAdapter,
+)
 from modules.enrichment.pipeline import EnrichmentPipeline
 from modules.scraping.orchestrator import ScrapeOrchestrator
 
@@ -30,6 +36,11 @@ def get_repository(request: Request) -> LeadRepository:
 
 def get_enrichment_repository(request: Request) -> EnrichmentRepository:
     """Retrieve the enrichment repository from app state."""
+    return request.app.state.repository  # type: ignore[no-any-return]
+
+
+def get_prospect_repository(request: Request) -> ProspectRepository:
+    """Retrieve the prospect repository from app state."""
     return request.app.state.repository  # type: ignore[no-any-return]
 
 
@@ -62,6 +73,7 @@ def get_event_bus(request: Request) -> EventBus:
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 RepositoryDep = Annotated[LeadRepository, Depends(get_repository)]
 EnrichmentRepoDep = Annotated[EnrichmentRepository, Depends(get_enrichment_repository)]
+ProspectRepoDep = Annotated[ProspectRepository, Depends(get_prospect_repository)]
 PublisherDep = Annotated[EventPublisher, Depends(get_publisher)]
 OrchestratorDep = Annotated[ScrapeOrchestrator, Depends(get_orchestrator)]
 AdaptersDep = Annotated[dict[str, SourceAdapter], Depends(get_adapters)]

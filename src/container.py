@@ -21,6 +21,7 @@ from infrastructure.openai_provider import OpenAIProvider
 from infrastructure.postgres_repo import PostgresLeadRepository
 from infrastructure.prompt_loader import PromptLoader
 from modules.enrichment.company_resolver import LLMCompanyResolver
+from modules.enrichment.linkedin_enricher import LinkedInJobEnricher
 from modules.enrichment.pipeline import EnrichmentPipeline
 from modules.scraping.adapters import build_adapters
 from modules.scraping.orchestrator import ScrapeOrchestrator
@@ -86,6 +87,16 @@ class Container:
                 user_agent=settings.browser_user_agent,
             )
             self.browser_fetcher = BrowserFetcher(self.browser_pool)
+
+        # LinkedIn job enricher — built whenever a RapidAPI key is present,
+        # independent of enable_enrichment. The enrichment pipeline doesn't
+        # call it yet (see docs/enrichment-pipeline-design.md); it's exposed
+        # for future stages and for ad-hoc use from routes/scripts.
+        self.linkedin_job_enricher: LinkedInJobEnricher | None = None
+        if settings.linkedin_rapidapi_key:
+            self.linkedin_job_enricher = LinkedInJobEnricher(
+                fetcher=self.default_fetcher, settings=settings
+            )
 
         # Enrichment (only when enabled — requires a valid LLM API key)
         self.llm_provider = None

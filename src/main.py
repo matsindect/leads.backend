@@ -63,6 +63,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.adapters = container.adapters
     app.state.event_bus = container.event_bus
     app.state.pipeline = container.pipeline
+    app.state.linkedin_job_enricher = container.linkedin_job_enricher
     app.state.container = container
 
     # Start background workers only when enrichment is enabled

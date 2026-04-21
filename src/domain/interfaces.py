@@ -17,6 +17,8 @@ from domain.models import (
     AdapterInfo,
     CanonicalLead,
     RunReport,
+    TargetCompany,
+    TargetPerson,
 )
 
 # ---------------------------------------------------------------------------
@@ -245,4 +247,49 @@ class CompanyResolver(Protocol):
         self, title: str, body: str, person_name: str | None
     ) -> tuple[str | None, str | None]:
         """Return (company_name, company_domain) or (None, None)."""
+        ...
+
+
+# ---------------------------------------------------------------------------
+# Prospect discovery protocols
+# ---------------------------------------------------------------------------
+
+
+class ProspectRepository(Protocol):
+    """Persistence layer for prospect-search results (companies and people).
+
+    Kept separate from ``LeadRepository`` because prospects aren't leads —
+    they carry no buying signal and don't flow through the enrichment
+    pipeline. Upserts use (source, source_id) as the dedup key.
+    """
+
+    async def upsert_target_companies(
+        self, companies: Sequence[TargetCompany]
+    ) -> tuple[list[UUID], int]:
+        """Insert companies, skip duplicates by (source, source_id).
+
+        Returns (list of inserted UUIDs, count of duplicates skipped).
+        """
+        ...
+
+    async def upsert_target_people(
+        self, people: Sequence[TargetPerson]
+    ) -> tuple[list[UUID], int]:
+        """Insert people, skip duplicates by (source, source_id)."""
+        ...
+
+    async def list_target_companies(
+        self, *, limit: int = 50, offset: int = 0
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Return (rows, total_count) with offset pagination."""
+        ...
+
+    async def list_target_people(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        company_domain: str | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Return (rows, total_count), optionally filtered by company domain."""
         ...

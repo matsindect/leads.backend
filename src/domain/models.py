@@ -129,3 +129,54 @@ class EnrichmentResult:
 
 class AlreadyProcessedError(Exception):
     """Raised when a lead has already been enriched (idempotency guard)."""
+
+
+# ---------------------------------------------------------------------------
+# Prospect discovery models
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class TargetCompany:
+    """A company discovered via prospect-search (e.g. LinkedIn /search-companies).
+
+    Not a lead — there's no buying signal. Stored in the ``target_companies``
+    table and eventually used to drive outreach or enrichment.
+    """
+
+    source: str
+    source_id: str
+    name: str
+    raw_payload: dict[str, Any]
+    linkedin_url: str | None = None
+    domain: str | None = None
+    industry: str | None = None
+    headcount_band: str | None = None
+    headcount_growth: int | None = None
+    annual_revenue_min: int | None = None
+    annual_revenue_max: int | None = None
+    annual_revenue_currency: str | None = None
+    hq_location: str | None = None
+    technologies: list[str] = field(default_factory=list)
+    hiring_on_linkedin: bool | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TargetPerson:
+    """A person discovered via prospect-search (e.g. LinkedIn /search-employees).
+
+    Not a lead — stored in ``target_people``. ``seed_url`` records which
+    Sales Navigator query produced this person for audit.
+    """
+
+    source: str
+    source_id: str
+    full_name: str
+    raw_payload: dict[str, Any]
+    linkedin_url: str | None = None
+    headline: str | None = None
+    current_title: str | None = None
+    current_company: str | None = None
+    current_company_domain: str | None = None
+    location: str | None = None
+    seed_url: str | None = None

@@ -112,6 +112,48 @@ class Settings(BaseSettings):
     )
     linkedin_poll_interval_seconds: int = Field(default=14400)
 
+    # --- LinkedIn jobs (v1 ↔ v2 toggle) ---
+    linkedin_use_jobs_v2: bool = Field(
+        default=True,
+        description="Use /search-jobs-v2 instead of /search-jobs.",
+    )
+    linkedin_job_location: str = Field(
+        default="",
+        description="Location filter for jobs-v2 (empty = no filter).",
+    )
+    linkedin_job_start: int = Field(
+        default=0,
+        description="Pagination offset for jobs-v2.",
+    )
+
+    # --- LinkedIn prospect discovery: /search-companies ---
+    linkedin_company_headcounts: list[str] = Field(default=["11-50", "51-200"])
+    linkedin_company_industry_codes: list[int] = Field(default=[])
+    linkedin_company_hq_location_codes: list[int] = Field(
+        default=[],
+        description="LinkedIn geo IDs used as HQ filter (e.g. 103644278 = US).",
+    )
+    linkedin_company_technologies: list[str] = Field(default=[])
+    linkedin_company_keywords: str = Field(default="")
+    linkedin_company_headcount_growth_min: int | None = Field(default=None)
+    linkedin_company_headcount_growth_max: int | None = Field(default=None)
+    linkedin_company_annual_revenue_min: int | None = Field(default=None)
+    linkedin_company_annual_revenue_max: int | None = Field(default=None)
+    linkedin_company_annual_revenue_currency: str = Field(default="USD")
+    linkedin_company_hiring_on_linkedin: bool = Field(default=False)
+    linkedin_company_limit: int = Field(default=100, ge=1, le=1000)
+
+    # --- LinkedIn prospect discovery: /search-employees ---
+    linkedin_employee_seed_urls: list[str] = Field(
+        default=[],
+        description="Sales Navigator URLs to seed employee discovery.",
+    )
+    linkedin_employee_limit: int = Field(default=25, ge=1, le=100)
+
+    # --- LinkedIn enrichment: /get-job-details ---
+    linkedin_enrich_include_skills: bool = Field(default=False)
+    linkedin_enrich_include_hiring_team: bool = Field(default=False)
+
     # --- Funding sources ---
     funding_feed_urls: list[str] = Field(
         default=[
